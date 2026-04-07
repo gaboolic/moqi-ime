@@ -1,0 +1,11 @@
+{
+	"name": "Go拼音输入法",
+	"version": "1.0.0",
+	"guid": "{5C8E1D74-2F9A-4B63-91DE-7A45C8F2B306}",
+	"locale": "zh-Hans-CN",
+	"fallbackLocale": "zh-CN",
+	"icon": "",
+	"win8_icon": "",
+	"moduleName": "",
+	"serviceName": ""
+}

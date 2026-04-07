@@ -1,0 +1,11 @@
+{
+    "name": "Fcitx5 输入法 (GIME)",
+    "version": "0.1",
+    "guid": "{D2E4A8B1-6C35-4F90-AB7D-18E2635C9F41}",
+    "locale": "zh-Hans-CN",
+    "fallbackLocale": "zh-CN",
+    "icon": "",
+    "win8_icon": "",
+    "moduleName": "fcitx5",
+    "serviceName": "Fcitx5TextService"
+}
