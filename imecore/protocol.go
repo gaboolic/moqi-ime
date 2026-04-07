@@ -1,4 +1,4 @@
-// PIME 通信协议定义
+// Moqi IME 通信协议定义
 package imecore
 
 import (
@@ -8,7 +8,7 @@ import (
 
 // 消息类型
 const (
-	MsgPIME = "PIME_MSG"
+	MsgMOQI = "MOQI_MSG"
 )
 
 type FlexibleID struct {
@@ -65,7 +65,7 @@ func (id FlexibleID) IntValue() int {
 	return 0
 }
 
-// Request PIME请求结构
+// Request Moqi请求结构
 type Request struct {
 	Method            string     `json:"method"`
 	SeqNum            int        `json:"seqNum"`
@@ -136,7 +136,7 @@ type ButtonInfo struct {
 	Toggled   bool   `json:"toggled,omitempty"`
 }
 
-// Response PIME响应结构
+// Response Moqi响应结构
 type Response struct {
 	SeqNum            int                    `json:"seqNum"`
 	Success           bool                   `json:"success"`

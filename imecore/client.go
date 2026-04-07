@@ -1,6 +1,6 @@
 package imecore
 
-// Client 表示一个 PIME 客户端会话。
+// Client 表示一个 Moqi IME 后端客户端会话。
 type Client struct {
 	ID              string
 	GUID            string

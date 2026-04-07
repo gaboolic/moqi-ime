@@ -97,7 +97,7 @@ func sendProtocolMessage(t *testing.T, server *Server, clientID string, payload 
 		}
 	})
 
-	prefix := imecore.MsgPIME + "|" + clientID + "|"
+	prefix := imecore.MsgMOQI + "|" + clientID + "|"
 	if !strings.HasPrefix(output, prefix) {
 		t.Fatalf("expected %q prefix, got %q", prefix, output)
 	}

@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	APP         = "PIME"
+	APP         = "Moqi"
 	APP_VERSION = "0.01"
 
 	ID_MODE_ICON          = 1
@@ -289,7 +289,7 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 	case ID_SYNC_DIR:
 		ime.openPath(filepath.Join(ime.userDir(), "sync"))
 	case ID_LOG_DIR:
-		ime.openPath(filepath.Join(os.Getenv("LOCALAPPDATA"), "PIME", "Logs"))
+		ime.openPath(filepath.Join(os.Getenv("LOCALAPPDATA"), APP, "Logs"))
 	default:
 		log.Printf("未知命令: %d", commandID)
 		resp.ReturnValue = 0
@@ -331,7 +331,7 @@ func (ime *IME) Init(req *imecore.Request) bool {
 
 	exeDir := filepath.Dir(exePath)
 	ime.iconDir = filepath.Join(exeDir, "input_methods", "rime", "icons")
-	// After installation this resolves to C:\Program Files (x86)\PIME\go-backend\input_methods\rime\data.
+	// After installation this resolves to e.g. C:\Program Files (x86)\Moqi\moqi-ime\input_methods\rime\data.
 	sharedDir := filepath.Join(exeDir, "input_methods", "rime", "data")
 
 	appData := os.Getenv("APPDATA")

@@ -1,4 +1,4 @@
-// PIME 文本服务基础实现
+// Moqi IME 文本服务基础实现
 package imecore
 
 // TextServiceBase 文本服务基础实现

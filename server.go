@@ -1,4 +1,4 @@
-// PIME Go 后端主入口
+// Moqi Go 后端主入口
 // 参考 python/server.py 实现
 package main
 
@@ -35,7 +35,7 @@ type Client struct {
 // ServiceFactory 服务工厂函数
 type ServiceFactory func(client *imecore.Client, guid string) imecore.TextService
 
-// Server PIME 服务器
+// Server Moqi 服务器
 type Server struct {
 	mu        sync.RWMutex
 	clients   map[string]*Client
@@ -105,7 +105,7 @@ func (s *Server) RegisterService(guid string, factory ServiceFactory) {
 // Run 运行服务器
 func (s *Server) Run() error {
 	s.running = true
-	log.Println("PIME Go 后端服务器已启动")
+	log.Println("Moqi Go 后端服务器已启动")
 
 	for s.running {
 		line, err := s.reader.ReadString('\n')
@@ -170,7 +170,7 @@ func (s *Server) handleRequest(clientID string, req *imecore.Request) map[string
 
 	switch req.Method {
 	case "init":
-		// PIME 在 init 时通过顶层 id 传递语言配置 GUID。
+		// Moqi 宿主在 init 时通过顶层 id 传递语言配置 GUID。
 		// 为了兼容已有调用，也接受 data.guid。
 		guid := req.ID.StringValue()
 		if guid == "" && req.Data != nil {
@@ -208,7 +208,7 @@ func (s *Server) handleRequest(clientID string, req *imecore.Request) map[string
 		}
 
 		// 创建输入法服务
-		pimeClient := &imecore.Client{
+		moqiClient := &imecore.Client{
 			ID:              clientID,
 			GUID:            guid,
 			IsWindows8Above: req.IsWindows8Above,
@@ -216,7 +216,7 @@ func (s *Server) handleRequest(clientID string, req *imecore.Request) map[string
 			IsUiLess:        req.IsUiLess,
 			IsConsole:       req.IsConsole,
 		}
-		client.Service = factory(pimeClient, guid)
+		client.Service = factory(moqiClient, guid)
 		s.clients[clientID] = client
 
 		// 初始化服务
@@ -286,7 +286,7 @@ func (s *Server) sendResponse(clientID string, resp map[string]interface{}) erro
 		return fmt.Errorf("序列化响应失败: %w", err)
 	}
 
-	fmt.Printf("%s|%s|%s\n", imecore.MsgPIME, clientID, string(data))
+	fmt.Printf("%s|%s|%s\n", imecore.MsgMOQI, clientID, string(data))
 	return nil
 }
 
@@ -416,10 +416,10 @@ func openLogFile() (*os.File, error) {
 	candidates := []string{}
 
 	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
-		candidates = append(candidates, filepath.Join(localAppData, "PIME", "Logs", "go_backend.log"))
+		candidates = append(candidates, filepath.Join(localAppData, "Moqi", "Logs", "go_backend.log"))
 	}
 	if tempDir := os.TempDir(); tempDir != "" {
-		candidates = append(candidates, filepath.Join(tempDir, "PIME", "go_backend.log"))
+		candidates = append(candidates, filepath.Join(tempDir, "Moqi", "go_backend.log"))
 	}
 	candidates = append(candidates, "go_backend.log")
 
@@ -457,7 +457,7 @@ func main() {
 	}
 
 	log.Println("=" + strings.Repeat("=", 50))
-	log.Println("PIME Go 后端启动")
+	log.Println("Moqi Go 后端启动")
 	log.Println("=" + strings.Repeat("=", 50))
 
 	// 创建服务器

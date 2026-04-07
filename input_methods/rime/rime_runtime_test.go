@@ -14,7 +14,7 @@ import (
 func newRealRimeSession(t *testing.T) RimeSessionId {
 	t.Helper()
 
-	wd := "D:\\vscode\\moqi-input-method-projs\\PIME\\go-backend\\input_methods\\rime"
+	wd := "D:\\vscode\\moqi-input-method-projs\\moqi-ime\\input_methods\\rime"
 	appData := os.Getenv("APPDATA")
 	if appData == "" {
 		t.Skip("APPDATA is not set")

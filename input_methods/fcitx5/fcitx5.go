@@ -17,7 +17,7 @@ type Fcitx5KeyCode uint32
 type Fcitx5KeyState uint32
 
 const (
-	APP         = "PIME"
+	APP         = "Moqi"
 	APP_VERSION = "0.01"
 
 	// 命令ID
