@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/gaboolic/moqi-ime/imecore"
@@ -45,5 +46,21 @@ func TestConvertResponseUsesReturnDataWhenPresent(t *testing.T) {
 	items, ok := got["return"].([]map[string]interface{})
 	if !ok || len(items) != 1 {
 		t.Fatalf("expected menu return data, got %#v", got["return"])
+	}
+}
+
+func TestOpenLogFileUsesMoqiIMLogDirectoryUnderLocalAppData(t *testing.T) {
+	localAppData := t.TempDir()
+	t.Setenv("LOCALAPPDATA", localAppData)
+
+	logFile, err := openLogFile()
+	if err != nil {
+		t.Fatalf("openLogFile failed: %v", err)
+	}
+	defer logFile.Close()
+
+	want := filepath.Join(localAppData, "MoqiIM", "Log", "go_backend.log")
+	if got := logFile.Name(); filepath.Clean(got) != filepath.Clean(want) {
+		t.Fatalf("expected log path %q, got %q", want, got)
 	}
 }
