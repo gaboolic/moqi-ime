@@ -189,6 +189,15 @@ func (ime *IME) filterKeyDown(req *imecore.Request, resp *imecore.Response) *ime
 		ime.logKeyRequestResult("filterKeyDown.ai", req, resp)
 		return resp
 	}
+	if ime.shouldDeferKeyDownProcessing(req) {
+		ime.lastKeyDownCode = req.KeyCode
+		ime.lastKeySkip = 0
+		ime.lastKeyDownRet = true
+		ime.lastKeyUpCode = 0
+		resp.ReturnValue = 1
+		ime.logKeyRequestResult("filterKeyDown.defer", req, resp)
+		return resp
+	}
 	if ime.lastKeyDownCode == req.KeyCode {
 		ime.lastKeySkip++
 		if ime.lastKeySkip >= 2 {
@@ -231,6 +240,11 @@ func (ime *IME) onKeyDown(req *imecore.Request, resp *imecore.Response) *imecore
 	if ime.shouldPassThroughModifierOnKey(req, ime.lastKeyDownRet) {
 		resp.ReturnValue = 0
 		ime.logKeyRequestResult("onKeyDown.passThrough", req, resp)
+		return resp
+	}
+	if ime.shouldDeferKeyDownProcessing(req) {
+		resp.ReturnValue = boolToInt(ime.processKey(req, false) && ime.onKey(req, resp))
+		ime.logKeyRequestResult("onKeyDown.defer", req, resp)
 		return resp
 	}
 	resp.ReturnValue = boolToInt(ime.onKey(req, resp))
@@ -776,6 +790,39 @@ func (ime *IME) shouldPassThroughModifierOnKey(req *imecore.Request, filterHandl
 		return true
 	}
 	return req.KeyStates.IsKeyDown(vkControl) || req.KeyStates.IsKeyDown(vkMenu)
+}
+
+func (ime *IME) shouldDeferKeyDownProcessing(req *imecore.Request) bool {
+	if req == nil || ime.backend == nil {
+		return false
+	}
+	if !ime.isComposing() {
+		return false
+	}
+	if req.KeyCode == vkSpace || req.KeyCode == vkReturn {
+		return true
+	}
+	if _, ok := translateDigitKeyCode(req.KeyCode); ok {
+		return true
+	}
+	if isCompositionCommitChar(req) {
+		return true
+	}
+	return false
+}
+
+func isCompositionCommitChar(req *imecore.Request) bool {
+	if req == nil || !isPrintableChar(req) {
+		return false
+	}
+	if req.CharCode == '\'' {
+		return false
+	}
+	return !isLatinLetter(req.CharCode)
+}
+
+func isLatinLetter(charCode int) bool {
+	return (charCode >= 'a' && charCode <= 'z') || (charCode >= 'A' && charCode <= 'Z')
 }
 
 func (ime *IME) onKey(req *imecore.Request, resp *imecore.Response) bool {
