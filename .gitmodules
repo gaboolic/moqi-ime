@@ -1,0 +1,3 @@
+[submodule "rime-frost"]
+	path = rime-frost
+	url = https://github.com/gaboolic/rime-frost
