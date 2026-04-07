@@ -184,7 +184,9 @@ func (ime *IME) onDeactivate(req *imecore.Request, resp *imecore.Response) *imec
 }
 
 func (ime *IME) filterKeyDown(req *imecore.Request, resp *imecore.Response) *imecore.Response {
+	ime.logKeyRequestTrace("filterKeyDown.enter", req)
 	if ime.handleAIKeyDownFilter(req, resp) {
+		ime.logKeyRequestResult("filterKeyDown.ai", req, resp)
 		return resp
 	}
 	if ime.lastKeyDownCode == req.KeyCode {
@@ -200,6 +202,7 @@ func (ime *IME) filterKeyDown(req *imecore.Request, resp *imecore.Response) *ime
 	}
 	ime.lastKeyUpCode = 0
 	resp.ReturnValue = boolToInt(ime.lastKeyDownRet)
+	ime.logKeyRequestResult("filterKeyDown.exit", req, resp)
 	return resp
 }
 
@@ -220,14 +223,18 @@ func (ime *IME) filterKeyUp(req *imecore.Request, resp *imecore.Response) *imeco
 }
 
 func (ime *IME) onKeyDown(req *imecore.Request, resp *imecore.Response) *imecore.Response {
+	ime.logKeyRequestTrace("onKeyDown.enter", req)
 	if ime.handleAIKeyDown(req, resp) {
+		ime.logKeyRequestResult("onKeyDown.ai", req, resp)
 		return resp
 	}
 	if ime.shouldPassThroughModifierOnKey(req, ime.lastKeyDownRet) {
 		resp.ReturnValue = 0
+		ime.logKeyRequestResult("onKeyDown.passThrough", req, resp)
 		return resp
 	}
 	resp.ReturnValue = boolToInt(ime.onKey(req, resp))
+	ime.logKeyRequestResult("onKeyDown.exit", req, resp)
 	return resp
 }
 
@@ -703,6 +710,58 @@ func (ime *IME) logShortcutTrace(req *imecore.Request, isUp bool, translatedKeyC
 		backendRet,
 		handled,
 		ime.keyComposing,
+	)
+}
+
+func (ime *IME) logKeyRequestTrace(stage string, req *imecore.Request) {
+	if req == nil {
+		return
+	}
+	translatedKeyCode := translateKeyCode(req)
+	backendNil := ime.backend == nil
+	asciiMode := false
+	if ime.backend != nil {
+		asciiMode = ime.backend.State().AsciiMode
+	}
+	log.Printf(
+		"RIME 按键请求 stage=%s method=%s seq=%d keyCode=%d charCode=%d translatedKey=%d ascii_mode=%t backend_nil=%t composing=%t",
+		stage,
+		req.Method,
+		req.SeqNum,
+		req.KeyCode,
+		req.CharCode,
+		translatedKeyCode,
+		asciiMode,
+		backendNil,
+		ime.keyComposing,
+	)
+}
+
+func (ime *IME) logKeyRequestResult(stage string, req *imecore.Request, resp *imecore.Response) {
+	if req == nil || resp == nil {
+		return
+	}
+	translatedKeyCode := translateKeyCode(req)
+	backendNil := ime.backend == nil
+	asciiMode := false
+	if ime.backend != nil {
+		asciiMode = ime.backend.State().AsciiMode
+	}
+	log.Printf(
+		"RIME 按键结果 stage=%s method=%s seq=%d keyCode=%d charCode=%d translatedKey=%d ascii_mode=%t backend_nil=%t returnValue=%d composition=%q candidates=%d showCandidates=%t commit=%q",
+		stage,
+		req.Method,
+		req.SeqNum,
+		req.KeyCode,
+		req.CharCode,
+		translatedKeyCode,
+		asciiMode,
+		backendNil,
+		resp.ReturnValue,
+		resp.CompositionString,
+		len(resp.CandidateList),
+		resp.ShowCandidates,
+		resp.CommitString,
 	)
 }
 
