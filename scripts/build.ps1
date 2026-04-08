@@ -190,8 +190,7 @@ try {
     Prepare-RimeData -RimeDataDir $RimeDataDir -PackageRimeDataDir $PackageRimeDataDir
 
     $pathsToRemove = @(
-        @{ Path = Join-Path $PackageDir "input_methods\rime\brise"; Label = "rime\brise directory" },
-        @{ Path = Join-Path $PackageDir "input_methods\rime\rime.dll.bak-32bit"; Label = "backup DLL" },
+        @{ Path = Join-Path $PackageDir "input_methods\rime\data\others"; Label = "rime shared data others directory" },
         @{ Path = Join-Path $PackageDir "input_methods\rime\icons\icons"; Label = "nested icons directory" }
     )
     foreach ($entry in $pathsToRemove) {
