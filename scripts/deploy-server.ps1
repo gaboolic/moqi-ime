@@ -1,7 +1,7 @@
 param(
     [string]$SourceRoot = (Join-Path $PSScriptRoot "build\moqi-ime"),
     [string]$InstallRoot = "C:\Program Files (x86)\MoqiIM\moqi-ime",
-    [string]$LauncherPath = "C:\Program Files (x86)\MoqiIM\MoqLauncher.exe"
+    [string]$LauncherPath = "C:\Program Files (x86)\MoqiIM\MoqiLauncher.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,16 +38,16 @@ function Restart-Elevated {
     }
 }
 
-function Stop-MoqLauncher {
+function Stop-MoqiLauncher {
     param([string]$Path)
 
-    $running = @(Get-Process -Name "MoqLauncher" -ErrorAction SilentlyContinue)
+    $running = @(Get-Process -Name "MoqiLauncher" -ErrorAction SilentlyContinue)
     if (-not $running) {
-        Write-Host "[INFO] MoqLauncher.exe is not running."
+        Write-Host "[INFO] MoqiLauncher.exe is not running."
         return
     }
 
-    Write-Host "[INFO] Stopping MoqLauncher.exe ..."
+    Write-Host "[INFO] Stopping MoqiLauncher.exe ..."
     if (Test-Path -LiteralPath $Path) {
         try {
             Start-Process -FilePath $Path -ArgumentList "/quit" -WindowStyle Hidden | Out-Null
@@ -60,7 +60,7 @@ function Stop-MoqLauncher {
     $deadline = (Get-Date).AddSeconds(5)
     do {
         Start-Sleep -Milliseconds 250
-        $running = @(Get-Process -Name "MoqLauncher" -ErrorAction SilentlyContinue)
+        $running = @(Get-Process -Name "MoqiLauncher" -ErrorAction SilentlyContinue)
     } while ($running.Count -gt 0 -and (Get-Date) -lt $deadline)
 
     if ($running.Count -gt 0) {
@@ -69,19 +69,19 @@ function Stop-MoqLauncher {
     }
 
     Start-Sleep -Seconds 1
-    Write-Host "[INFO] MoqLauncher.exe stopped."
+    Write-Host "[INFO] MoqiLauncher.exe stopped."
 }
 
-function Start-MoqLauncher {
+function Start-MoqiLauncher {
     param([string]$Path)
 
     if (-not (Test-Path -LiteralPath $Path)) {
-        throw "MoqLauncher.exe not found: $Path"
+        throw "MoqiLauncher.exe not found: $Path"
     }
 
-    Write-Host "[INFO] Starting MoqLauncher.exe ..."
+    Write-Host "[INFO] Starting MoqiLauncher.exe ..."
     Start-Process -FilePath $Path | Out-Null
-    Write-Host "[INFO] MoqLauncher.exe started."
+    Write-Host "[INFO] MoqiLauncher.exe started."
 }
 
 function Write-FileDetails {
@@ -201,7 +201,7 @@ Write-FileDetails -Label "Source rime.dll" -Path $sourceRimeDLL
 Write-FileDetails -Label "Destination rime.dll (before)" -Path $destinationRimeDLL
 
 try {
-    Stop-MoqLauncher -Path $LauncherPath
+    Stop-MoqiLauncher -Path $LauncherPath
 
     Sync-GoBackendRuntime -Source $SourceRoot -Destination $InstallRoot
     Sync-RimeUserAIConfig -SourceConfig $sourceAIConfig -AppDataPath $env:APPDATA
@@ -210,6 +210,5 @@ try {
     Write-FileDetails -Label "Destination rime.dll (after)" -Path $destinationRimeDLL
 }
 finally {
-    Start-MoqLauncher -Path $LauncherPath
+    Start-MoqiLauncher -Path $LauncherPath
 }
- 
