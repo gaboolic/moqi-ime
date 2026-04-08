@@ -216,10 +216,10 @@ try {
     Write-Step -Title "Step 7: Generate backends.json snippet"
     @(
         [ordered]@{
-            name = "moqi-ime"
-            command = "moqi-ime\server.exe"
+            name       = "moqi-ime"
+            command    = "moqi-ime\server.exe"
             workingDir = "moqi-ime"
-            params = ""
+            params     = ""
         }
     ) | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $BackendSnippet -Encoding UTF8
 
@@ -242,4 +242,4 @@ Write-Host "2. Ensure C:\Program Files (x86)\MoqiIM\backends.json includes moqi-
 Write-Host "3. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\*\ime.json exists."
 Write-Host "4. Re-register both MoqiTextService.dll files after copying."
 Write-Host "5. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\rime contains rime.dll."
-Write-Host "6. Start or restart MoqLauncher.exe after install."
+Write-Host "6. Start or restart MoqiLauncher.exe after install."
