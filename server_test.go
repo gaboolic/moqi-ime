@@ -59,7 +59,7 @@ func TestOpenLogFileUsesMoqiIMLogDirectoryUnderLocalAppData(t *testing.T) {
 	}
 	defer logFile.Close()
 
-	want := filepath.Join(localAppData, "MoqiIM", "Log", "go_backend.log")
+	want := filepath.Join(localAppData, "MoqiIM", "Log", "moqi-ime.log")
 	if got := logFile.Name(); filepath.Clean(got) != filepath.Clean(want) {
 		t.Fatalf("expected log path %q, got %q", want, got)
 	}

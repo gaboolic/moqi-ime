@@ -131,9 +131,9 @@ moqi-ime/
 
 按顺序尝试，**第一个成功打开的文件** 作为日志输出：
 
-1. `%LOCALAPPDATA%\Moqi\Logs\go_backend.log`
-2. `%TEMP%\Moqi\go_backend.log`
-3. 当前工作目录下的 `go_backend.log`
+1. `%LOCALAPPDATA%\Moqi\Logs\moqi-ime.log`
+2. `%TEMP%\Moqi\moqi-ime.log`
+3. 当前工作目录下的 `moqi-ime.log`
 
 目录不存在时会尝试 `MkdirAll`。若全部失败，日志打到 **stderr**。
 
