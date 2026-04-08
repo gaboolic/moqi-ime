@@ -13,20 +13,39 @@ type testDictEntry struct {
 }
 
 type testBackend struct {
-	session      bool
-	composition  string
-	candidates   []candidateItem
-	commitString string
-	asciiMode    bool
-	fullShape    bool
+	session           bool
+	composition       string
+	candidates        []candidateItem
+	commitString      string
+	asciiMode         bool
+	fullShape         bool
+	redeployCalls     int
+	redeploySharedDir string
+	redeployUserDir   string
+	redeployOK        bool
+	syncCalls         int
+	syncOK            bool
 }
 
 func newTestBackend() *testBackend {
-	return &testBackend{}
+	return &testBackend{redeployOK: true, syncOK: true}
 }
 
 func (b *testBackend) Initialize(sharedDir, userDir string, firstRun bool) bool {
 	return true
+}
+
+func (b *testBackend) Redeploy(sharedDir, userDir string) bool {
+	b.redeployCalls++
+	b.redeploySharedDir = sharedDir
+	b.redeployUserDir = userDir
+	b.DestroySession()
+	return b.redeployOK
+}
+
+func (b *testBackend) SyncUserData() bool {
+	b.syncCalls++
+	return b.syncOK
 }
 
 func (b *testBackend) EnsureSession() bool {
@@ -573,6 +592,50 @@ func TestOnCommandHandlesKnownAndMissingCommand(t *testing.T) {
 	}, imecore.NewResponse(12, true))
 	if missingResp.ReturnValue != 0 {
 		t.Fatalf("expected missing commandId to be ignored, got %d", missingResp.ReturnValue)
+	}
+}
+
+func TestOnCommandDeployRedeploysBackend(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+
+	ime := newTestIME()
+	backend := ime.backend.(*testBackend)
+	backend.composition = "ni"
+	backend.refreshCandidates()
+
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 13,
+		ID:     imecore.FlexibleID{Int: ID_DEPLOY, IsInt: true},
+	}, imecore.NewResponse(13, true))
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected deploy command to succeed, got %d", resp.ReturnValue)
+	}
+	if backend.redeployCalls != 1 {
+		t.Fatalf("expected backend redeployed once, got %d", backend.redeployCalls)
+	}
+	if backend.redeploySharedDir == "" || backend.redeployUserDir == "" {
+		t.Fatalf("expected redeploy paths to be populated, got shared=%q user=%q", backend.redeploySharedDir, backend.redeployUserDir)
+	}
+	if !backend.session {
+		t.Fatal("expected session recreated after redeploy")
+	}
+}
+
+func TestOnCommandSyncUserData(t *testing.T) {
+	ime := newTestIME()
+	backend := ime.backend.(*testBackend)
+
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 14,
+		ID:     imecore.FlexibleID{Int: ID_SYNC, IsInt: true},
+	}, imecore.NewResponse(14, true))
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected sync command to succeed, got %d", resp.ReturnValue)
+	}
+	if backend.syncCalls != 1 {
+		t.Fatalf("expected sync_user_data called once, got %d", backend.syncCalls)
 	}
 }
 

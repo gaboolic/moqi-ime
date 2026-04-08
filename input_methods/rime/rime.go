@@ -66,6 +66,8 @@ type rimeState struct {
 
 type rimeBackend interface {
 	Initialize(sharedDir, userDir string, firstRun bool) bool
+	Redeploy(sharedDir, userDir string) bool
+	SyncUserData() bool
 	EnsureSession() bool
 	DestroySession()
 	ClearComposition()
@@ -279,9 +281,15 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 	case ID_TRADITIONALIZATION:
 		ime.toggleOption("traditionalization")
 	case ID_DEPLOY:
-		log.Println("重新部署尚未实现")
+		if !ime.redeploy(req, resp) {
+			resp.ReturnValue = 0
+			return resp
+		}
 	case ID_SYNC:
-		log.Println("同步用户数据尚未实现")
+		if ime.backend == nil || !ime.backend.SyncUserData() {
+			resp.ReturnValue = 0
+			return resp
+		}
 	case ID_USER_DIR:
 		ime.openPath(ime.userDir())
 	case ID_SHARED_DIR:
@@ -797,6 +805,32 @@ func (ime *IME) destroySession(resp *imecore.Response) {
 	}
 	ime.keyComposing = false
 	ime.selectKeys = ""
+}
+
+func (ime *IME) redeploy(req *imecore.Request, resp *imecore.Response) bool {
+	ime.destroySession(resp)
+
+	sharedDir := ime.sharedDir()
+	userDir := ime.userDir()
+	if sharedDir == "" || userDir == "" {
+		log.Printf("重新部署失败，sharedDir=%q userDir=%q", sharedDir, userDir)
+		return false
+	}
+
+	if ime.backend == nil {
+		ime.backend = newNativeBackend()
+	}
+	if ime.backend == nil {
+		log.Println("重新部署失败，原生 RIME 后端不可用")
+		return false
+	}
+	if !ime.backend.Redeploy(sharedDir, userDir) {
+		log.Printf("重新部署失败，sharedDir=%q userDir=%q", sharedDir, userDir)
+		return false
+	}
+
+	ime.createSession(resp)
+	return ime.onKey(req, resp)
 }
 
 func (ime *IME) clearResponse(resp *imecore.Response) {
