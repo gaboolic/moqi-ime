@@ -16,7 +16,6 @@ import (
 
 	// 导入输入法包
 	"github.com/gaboolic/moqi-ime/input_methods/fcitx5"
-	"github.com/gaboolic/moqi-ime/input_methods/meow"
 	"github.com/gaboolic/moqi-ime/input_methods/rime"
 	simplepinyin "github.com/gaboolic/moqi-ime/input_methods/simple_pinyin"
 )
@@ -383,11 +382,6 @@ func loadInputMethods(server *Server) {
 
 		// 根据输入法名称注册不同的服务实现
 		switch entry.Name() {
-		case "meow":
-			// 喵喵输入法
-			server.RegisterService(guid, func(client *imecore.Client, g string) imecore.TextService {
-				return meow.New(client)
-			})
 		case "rime":
 			// RIME 输入法
 			server.RegisterService(guid, func(client *imecore.Client, g string) imecore.TextService {

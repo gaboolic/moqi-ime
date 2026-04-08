@@ -8,24 +8,14 @@ import (
 	"testing"
 
 	fcitx5ime "github.com/gaboolic/moqi-ime/input_methods/fcitx5"
-	meowime "github.com/gaboolic/moqi-ime/input_methods/meow"
 	rimeime "github.com/gaboolic/moqi-ime/input_methods/rime"
 	simplepinyinime "github.com/gaboolic/moqi-ime/input_methods/simple_pinyin"
 	"github.com/gaboolic/moqi-ime/imecore"
 )
 
-const testMeowGUID = "{7A1C2E93-5B64-4F88-AE21-3D9C6B70F145}"
 const testSimplePinyinGUID = "{5C8E1D74-2F9A-4B63-91DE-7A45C8F2B306}"
 const testRimeGUID = "{3F6B5A12-8D44-4E71-9A2E-6B4F9C1D2A30}"
 const testFcitx5GUID = "{D2E4A8B1-6C35-4F90-AB7D-18E2635C9F41}"
-
-func newTestServerWithMeow() *Server {
-	server := NewServer()
-	server.RegisterService(testMeowGUID, func(client *imecore.Client, guid string) imecore.TextService {
-		return meowime.New(client)
-	})
-	return server
-}
 
 func newTestServerWithSimplePinyin() *Server {
 	server := NewServer()
@@ -111,12 +101,12 @@ func sendProtocolMessage(t *testing.T, server *Server, clientID string, payload 
 }
 
 func TestServerHandleMessageInitUsesTopLevelID(t *testing.T) {
-	server := newTestServerWithMeow()
+	server := newTestServerWithSimplePinyin()
 
 	_, response := sendProtocolMessage(t, server, "client-1", map[string]interface{}{
 		"method":          "init",
 		"seqNum":          1,
-		"id":              testMeowGUID,
+		"id":              testSimplePinyinGUID,
 		"isWindows8Above": true,
 		"isMetroApp":      false,
 		"isUiLess":        false,
@@ -134,18 +124,18 @@ func TestServerHandleMessageInitUsesTopLevelID(t *testing.T) {
 	if client == nil {
 		t.Fatal("expected client to be registered after init")
 	}
-	if client.GUID != strings.ToLower(testMeowGUID) {
-		t.Fatalf("expected guid %q, got %q", strings.ToLower(testMeowGUID), client.GUID)
+	if client.GUID != strings.ToLower(testSimplePinyinGUID) {
+		t.Fatalf("expected guid %q, got %q", strings.ToLower(testSimplePinyinGUID), client.GUID)
 	}
 }
 
 func TestServerHandleMessageInitAcceptsLowercaseGUID(t *testing.T) {
-	server := newTestServerWithMeow()
+	server := newTestServerWithSimplePinyin()
 
 	_, response := sendProtocolMessage(t, server, "client-lower", map[string]interface{}{
 		"method":          "init",
 		"seqNum":          1,
-		"id":              strings.ToLower(testMeowGUID),
+		"id":              strings.ToLower(testSimplePinyinGUID),
 		"isWindows8Above": true,
 		"isMetroApp":      false,
 		"isUiLess":        false,
@@ -157,80 +147,8 @@ func TestServerHandleMessageInitAcceptsLowercaseGUID(t *testing.T) {
 	}
 }
 
-func TestServerHandleMessageMeowRequestResponseFlow(t *testing.T) {
-	server := newTestServerWithMeow()
-
-	sendProtocolMessage(t, server, "client-2", map[string]interface{}{
-		"method":          "init",
-		"seqNum":          1,
-		"id":              testMeowGUID,
-		"isWindows8Above": true,
-		"isMetroApp":      false,
-		"isUiLess":        false,
-		"isConsole":       false,
-	})
-
-	_, filterResp := sendProtocolMessage(t, server, "client-2", map[string]interface{}{
-		"method":   "filterKeyDown",
-		"seqNum":   2,
-		"keyCode":  0x4D,
-		"charCode": 'm',
-	})
-	if filterResp["return"] != float64(1) {
-		t.Fatalf("expected filterKeyDown to handle m, got %#v", filterResp)
-	}
-
-	_, firstKeyResp := sendProtocolMessage(t, server, "client-2", map[string]interface{}{
-		"method":   "onKeyDown",
-		"seqNum":   3,
-		"keyCode":  0x4D,
-		"charCode": 'm',
-	})
-	if firstKeyResp["compositionString"] != "喵" {
-		t.Fatalf("expected first m to build composition 喵, got %#v", firstKeyResp)
-	}
-	if firstKeyResp["return"] != float64(1) {
-		t.Fatalf("expected first m return 1, got %#v", firstKeyResp)
-	}
-
-	_, secondKeyResp := sendProtocolMessage(t, server, "client-2", map[string]interface{}{
-		"method":   "onKeyDown",
-		"seqNum":   4,
-		"keyCode":  0x4D,
-		"charCode": 'm',
-	})
-	if secondKeyResp["showCandidates"] != true {
-		t.Fatalf("expected second m to show candidates, got %#v", secondKeyResp)
-	}
-	candidateList, ok := secondKeyResp["candidateList"].([]interface{})
-	if !ok {
-		t.Fatalf("expected candidate list array, got %#v", secondKeyResp["candidateList"])
-	}
-	if len(candidateList) != 4 {
-		t.Fatalf("expected 4 candidates, got %d", len(candidateList))
-	}
-	if candidateList[1] != "描" {
-		t.Fatalf("expected second candidate 描, got %#v", candidateList[1])
-	}
-
-	_, selectResp := sendProtocolMessage(t, server, "client-2", map[string]interface{}{
-		"method":  "onKeyDown",
-		"seqNum":  5,
-		"keyCode": 0x32,
-	})
-	if selectResp["commitString"] != "描" {
-		t.Fatalf("expected number key to commit 描, got %#v", selectResp)
-	}
-	if selectResp["showCandidates"] != false {
-		t.Fatalf("expected candidate window to close, got %#v", selectResp)
-	}
-	if selectResp["return"] != float64(1) {
-		t.Fatalf("expected candidate selection return 1, got %#v", selectResp)
-	}
-}
-
 func TestServerHandleMessageUninitializedClientReturnsProtocolError(t *testing.T) {
-	server := newTestServerWithMeow()
+	server := newTestServerWithSimplePinyin()
 
 	_, response := sendProtocolMessage(t, server, "client-3", map[string]interface{}{
 		"method":   "onKeyDown",
@@ -251,12 +169,12 @@ func TestServerHandleMessageUninitializedClientReturnsProtocolError(t *testing.T
 }
 
 func TestServerHandleMessageCloseSucceeds(t *testing.T) {
-	server := newTestServerWithMeow()
+	server := newTestServerWithSimplePinyin()
 
 	sendProtocolMessage(t, server, "client-close", map[string]interface{}{
 		"method":          "init",
 		"seqNum":          1,
-		"id":              testMeowGUID,
+		"id":              testSimplePinyinGUID,
 		"isWindows8Above": true,
 		"isMetroApp":      false,
 		"isUiLess":        false,
