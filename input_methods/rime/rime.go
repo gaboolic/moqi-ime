@@ -772,7 +772,6 @@ func (ime *IME) rememberAICommit(commit string) {
 }
 
 func (ime *IME) createSession(resp *imecore.Response) {
-	log.Println("创建 RIME 会话")
 	if ime.backend == nil {
 		return
 	}
