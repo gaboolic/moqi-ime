@@ -416,12 +416,12 @@ func openLogFile() (*os.File, error) {
 	candidates := []string{}
 
 	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
-		candidates = append(candidates, filepath.Join(localAppData, "Moqi", "Logs", "go_backend.log"))
+		candidates = append(candidates, filepath.Join(localAppData, "Moqi", "Logs", "moqi-ime.log"))
 	}
 	if tempDir := os.TempDir(); tempDir != "" {
-		candidates = append(candidates, filepath.Join(tempDir, "Moqi", "go_backend.log"))
+		candidates = append(candidates, filepath.Join(tempDir, "Moqi", "moqi-ime.log"))
 	}
-	candidates = append(candidates, "go_backend.log")
+	candidates = append(candidates, "moqi-ime.log")
 
 	var lastErr error
 	for _, logPath := range candidates {
