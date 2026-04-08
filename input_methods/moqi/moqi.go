@@ -1,5 +1,4 @@
-// 简单拼音输入法
-package simplepinyin
+package moqi
 
 import (
 	"log"

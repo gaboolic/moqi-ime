@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	fcitx5ime "github.com/gaboolic/moqi-ime/input_methods/fcitx5"
-	rimeime "github.com/gaboolic/moqi-ime/input_methods/rime"
-	simplepinyinime "github.com/gaboolic/moqi-ime/input_methods/simple_pinyin"
 	"github.com/gaboolic/moqi-ime/imecore"
+	fcitx5ime "github.com/gaboolic/moqi-ime/input_methods/fcitx5"
+	simplepinyinime "github.com/gaboolic/moqi-ime/input_methods/moqi"
+	rimeime "github.com/gaboolic/moqi-ime/input_methods/rime"
 )
 
 const testSimplePinyinGUID = "{5C8E1D74-2F9A-4B63-91DE-7A45C8F2B306}"

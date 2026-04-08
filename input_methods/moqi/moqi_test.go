@@ -1,4 +1,4 @@
-package simplepinyin
+package moqi
 
 import (
 	"testing"

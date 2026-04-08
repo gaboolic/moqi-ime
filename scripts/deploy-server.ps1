@@ -127,6 +127,18 @@ function Sync-GoBackendRuntime {
     }
     Copy-Item -LiteralPath $sourceInputMethods -Destination $destinationInputMethods -Recurse -Force
 
+    $sourceIcons = Join-Path $Source "icons"
+    $destinationIcons = Join-Path $Destination "icons"
+    if (Test-Path -LiteralPath $destinationIcons) {
+        Remove-Item -LiteralPath $destinationIcons -Recurse -Force
+    }
+    if (Test-Path -LiteralPath $sourceIcons) {
+        Copy-Item -LiteralPath $sourceIcons -Destination $destinationIcons -Recurse -Force
+    }
+    else {
+        Write-Host "[WARN] Source icons directory not found, skipping icons sync."
+    }
+
     Write-Host "[INFO] moqi-ime runtime directory synced."
 }
 

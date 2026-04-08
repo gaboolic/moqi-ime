@@ -16,8 +16,8 @@ import (
 
 	// 导入输入法包
 	"github.com/gaboolic/moqi-ime/input_methods/fcitx5"
+	"github.com/gaboolic/moqi-ime/input_methods/moqi"
 	"github.com/gaboolic/moqi-ime/input_methods/rime"
-	simplepinyin "github.com/gaboolic/moqi-ime/input_methods/simple_pinyin"
 )
 
 // Client 客户端连接
@@ -387,10 +387,10 @@ func loadInputMethods(server *Server) {
 			server.RegisterService(guid, func(client *imecore.Client, g string) imecore.TextService {
 				return rime.New(client)
 			})
-		case "simple_pinyin":
+		case "moqi":
 			// 拼音输入法
 			server.RegisterService(guid, func(client *imecore.Client, g string) imecore.TextService {
-				return simplepinyin.New(client)
+				return moqi.New(client)
 			})
 		case "fcitx5":
 			// Fcitx5 输入法
@@ -400,7 +400,7 @@ func loadInputMethods(server *Server) {
 		default:
 			// 默认使用拼音输入法
 			server.RegisterService(guid, func(client *imecore.Client, g string) imecore.TextService {
-				return simplepinyin.New(client)
+				return moqi.New(client)
 			})
 		}
 	}

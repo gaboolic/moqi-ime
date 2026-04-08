@@ -106,6 +106,7 @@ $PackageDir = [System.IO.Path]::GetFullPath($PackageDir)
 $ServerExe = Join-Path $PackageDir "server.exe"
 $BackendSnippet = Join-Path $BuildRoot "backends.moqi-ime.json"
 $InputMethodsDir = Join-Path $RepoRoot "input_methods"
+$IconsDir = Join-Path $RepoRoot "icons"
 $RimeDir = Join-Path $InputMethodsDir "rime"
 $RimeDataDir = Join-Path $RepoRoot "rime-frost"
 $PackageRimeDir = Join-Path $PackageDir "input_methods\rime"
@@ -166,15 +167,26 @@ try {
 
     Write-Host "[INFO] Built: `"$ServerExe`""
 
-    Write-Step -Title "Step 4: Copy input_methods"
-    if (-not (Test-Path -LiteralPath $InputMethodsDir)) {
-        throw "Missing input_methods directory: `"$InputMethodsDir`""
+    Write-Step -Title "Step 4: Copy packaged input_methods"
+    if (-not (Test-Path -LiteralPath $RimeDir)) {
+        throw "Missing Rime input method directory: `"$RimeDir`""
     }
 
-    Copy-DirectoryContents -Source $InputMethodsDir -Destination (Join-Path $PackageDir "input_methods")
-    Write-Host "[INFO] input_methods copied"
+    $packageInputMethodsDir = Join-Path $PackageDir "input_methods"
+    Ensure-Directory -Path $packageInputMethodsDir
+    Copy-DirectoryContents -Source $RimeDir -Destination (Join-Path $packageInputMethodsDir "rime")
+    Write-Host "[INFO] Packaged only input_methods\rime"
 
-    Write-Step -Title "Step 5: Prepare packaged Rime shared data"
+    Write-Step -Title "Step 5: Copy shared icons"
+    if (Test-Path -LiteralPath $IconsDir) {
+        Copy-DirectoryContents -Source $IconsDir -Destination (Join-Path $PackageDir "icons")
+        Write-Host "[INFO] icons copied"
+    }
+    else {
+        Write-Warning "Missing icons directory: `"$IconsDir`""
+    }
+
+    Write-Step -Title "Step 6: Prepare packaged Rime shared data"
     Prepare-RimeData -RimeDataDir $RimeDataDir -PackageRimeDataDir $PackageRimeDataDir
 
     $pathsToRemove = @(
@@ -201,7 +213,7 @@ try {
         Write-Host "[INFO] Copied rime.dll into package output"
     }
 
-    Write-Step -Title "Step 6: Generate backends.json snippet"
+    Write-Step -Title "Step 7: Generate backends.json snippet"
     @(
         [ordered]@{
             name = "moqi-ime"
