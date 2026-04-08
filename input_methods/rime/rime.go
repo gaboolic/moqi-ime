@@ -184,18 +184,7 @@ func (ime *IME) onDeactivate(req *imecore.Request, resp *imecore.Response) *imec
 }
 
 func (ime *IME) filterKeyDown(req *imecore.Request, resp *imecore.Response) *imecore.Response {
-	ime.logKeyRequestTrace("filterKeyDown.enter", req)
 	if ime.handleAIKeyDownFilter(req, resp) {
-		ime.logKeyRequestResult("filterKeyDown.ai", req, resp)
-		return resp
-	}
-	if ime.shouldDeferKeyDownProcessing(req) {
-		ime.lastKeyDownCode = req.KeyCode
-		ime.lastKeySkip = 0
-		ime.lastKeyDownRet = true
-		ime.lastKeyUpCode = 0
-		resp.ReturnValue = 1
-		ime.logKeyRequestResult("filterKeyDown.defer", req, resp)
 		return resp
 	}
 	if ime.lastKeyDownCode == req.KeyCode {
@@ -211,7 +200,6 @@ func (ime *IME) filterKeyDown(req *imecore.Request, resp *imecore.Response) *ime
 	}
 	ime.lastKeyUpCode = 0
 	resp.ReturnValue = boolToInt(ime.lastKeyDownRet)
-	ime.logKeyRequestResult("filterKeyDown.exit", req, resp)
 	return resp
 }
 
@@ -232,23 +220,14 @@ func (ime *IME) filterKeyUp(req *imecore.Request, resp *imecore.Response) *imeco
 }
 
 func (ime *IME) onKeyDown(req *imecore.Request, resp *imecore.Response) *imecore.Response {
-	ime.logKeyRequestTrace("onKeyDown.enter", req)
 	if ime.handleAIKeyDown(req, resp) {
-		ime.logKeyRequestResult("onKeyDown.ai", req, resp)
 		return resp
 	}
 	if ime.shouldPassThroughModifierOnKey(req, ime.lastKeyDownRet) {
 		resp.ReturnValue = 0
-		ime.logKeyRequestResult("onKeyDown.passThrough", req, resp)
-		return resp
-	}
-	if ime.shouldDeferKeyDownProcessing(req) {
-		resp.ReturnValue = boolToInt(ime.processKey(req, false) && ime.onKey(req, resp))
-		ime.logKeyRequestResult("onKeyDown.defer", req, resp)
 		return resp
 	}
 	resp.ReturnValue = boolToInt(ime.onKey(req, resp))
-	ime.logKeyRequestResult("onKeyDown.exit", req, resp)
 	return resp
 }
 
@@ -727,58 +706,6 @@ func (ime *IME) logShortcutTrace(req *imecore.Request, isUp bool, translatedKeyC
 	)
 }
 
-func (ime *IME) logKeyRequestTrace(stage string, req *imecore.Request) {
-	if req == nil {
-		return
-	}
-	translatedKeyCode := translateKeyCode(req)
-	backendNil := ime.backend == nil
-	asciiMode := false
-	if ime.backend != nil {
-		asciiMode = ime.backend.State().AsciiMode
-	}
-	log.Printf(
-		"RIME 按键请求 stage=%s method=%s seq=%d keyCode=%d charCode=%d translatedKey=%d ascii_mode=%t backend_nil=%t composing=%t",
-		stage,
-		req.Method,
-		req.SeqNum,
-		req.KeyCode,
-		req.CharCode,
-		translatedKeyCode,
-		asciiMode,
-		backendNil,
-		ime.keyComposing,
-	)
-}
-
-func (ime *IME) logKeyRequestResult(stage string, req *imecore.Request, resp *imecore.Response) {
-	if req == nil || resp == nil {
-		return
-	}
-	translatedKeyCode := translateKeyCode(req)
-	backendNil := ime.backend == nil
-	asciiMode := false
-	if ime.backend != nil {
-		asciiMode = ime.backend.State().AsciiMode
-	}
-	log.Printf(
-		"RIME 按键结果 stage=%s method=%s seq=%d keyCode=%d charCode=%d translatedKey=%d ascii_mode=%t backend_nil=%t returnValue=%d composition=%q candidates=%d showCandidates=%t commit=%q",
-		stage,
-		req.Method,
-		req.SeqNum,
-		req.KeyCode,
-		req.CharCode,
-		translatedKeyCode,
-		asciiMode,
-		backendNil,
-		resp.ReturnValue,
-		resp.CompositionString,
-		len(resp.CandidateList),
-		resp.ShowCandidates,
-		resp.CommitString,
-	)
-}
-
 func (ime *IME) shouldPassThroughModifierOnKey(req *imecore.Request, filterHandled bool) bool {
 	if req == nil || filterHandled {
 		return false
@@ -790,39 +717,6 @@ func (ime *IME) shouldPassThroughModifierOnKey(req *imecore.Request, filterHandl
 		return true
 	}
 	return req.KeyStates.IsKeyDown(vkControl) || req.KeyStates.IsKeyDown(vkMenu)
-}
-
-func (ime *IME) shouldDeferKeyDownProcessing(req *imecore.Request) bool {
-	if req == nil || ime.backend == nil {
-		return false
-	}
-	if !ime.isComposing() {
-		return false
-	}
-	if req.KeyCode == vkSpace || req.KeyCode == vkReturn {
-		return true
-	}
-	if _, ok := translateDigitKeyCode(req.KeyCode); ok {
-		return true
-	}
-	if isCompositionCommitChar(req) {
-		return true
-	}
-	return false
-}
-
-func isCompositionCommitChar(req *imecore.Request) bool {
-	if req == nil || !isPrintableChar(req) {
-		return false
-	}
-	if req.CharCode == '\'' {
-		return false
-	}
-	return !isLatinLetter(req.CharCode)
-}
-
-func isLatinLetter(charCode int) bool {
-	return (charCode >= 'a' && charCode <= 'z') || (charCode >= 'A' && charCode <= 'Z')
 }
 
 func (ime *IME) onKey(req *imecore.Request, resp *imecore.Response) bool {

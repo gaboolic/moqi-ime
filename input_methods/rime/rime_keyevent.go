@@ -136,23 +136,10 @@ func translateKeyCode(req *imecore.Request) int {
 	if mapped, ok := vkMaps[keyCode]; ok {
 		return mapped
 	}
-	if asciiDigit, ok := translateDigitKeyCode(keyCode); ok {
-		return asciiDigit
-	}
 	if isPrintableChar(req) {
 		return req.CharCode
 	}
 	return voidSymbol
-}
-
-func translateDigitKeyCode(keyCode int) (int, bool) {
-	if keyCode >= 0x30 && keyCode <= 0x39 {
-		return keyCode, true
-	}
-	if keyCode >= 0x60 && keyCode <= 0x69 {
-		return int('0') + (keyCode - 0x60), true
-	}
-	return 0, false
 }
 
 func translateModifiers(req *imecore.Request, isUp bool) int {

@@ -1,4 +1,4 @@
-// Moqi IME 通信协议定义
+// 通信协议定义
 package imecore
 
 import (
@@ -8,7 +8,7 @@ import (
 
 // 消息类型
 const (
-	MsgMOQI = "MOQI_MSG"
+	MsgMOQI = "Moqi_MSG"
 )
 
 type FlexibleID struct {
