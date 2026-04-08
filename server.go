@@ -78,9 +78,10 @@ func logResponseSummary(clientID string, resp map[string]interface{}) {
 	raw, err := json.Marshal(resp)
 	if err != nil {
 		log.Printf("发送响应 client=%s marshal_error=%v", clientID, err)
+		log.Printf("发送响应 client=%s payload=%s", clientID, string(raw))
 		return
 	}
-	log.Printf("发送响应 client=%s payload=%s", clientID, string(raw))
+	//log.Printf("发送响应 client=%s payload=%s", clientID, string(raw))
 }
 
 // NewServer 创建服务器
@@ -153,7 +154,7 @@ func (s *Server) handleMessage(line string) error {
 		return fmt.Errorf("解析 JSON 失败: %w", err)
 	}
 
-	logRequestSummary(clientID, &req)
+	// logRequestSummary(clientID, &req)
 
 	// 处理请求
 	resp := s.handleRequest(clientID, &req)
@@ -263,7 +264,7 @@ func (s *Server) handleRequest(clientID string, req *imecore.Request) map[string
 			}
 		}
 
-		log.Printf("转发请求 client=%s seq=%d method=%s guid=%s", clientID, req.SeqNum, req.Method, client.GUID)
+		//log.Printf("转发请求 client=%s seq=%d method=%s guid=%s", clientID, req.SeqNum, req.Method, client.GUID)
 		resp := client.Service.HandleRequest(req)
 		return s.convertResponse(resp)
 
