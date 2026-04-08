@@ -32,6 +32,23 @@ func (b *nativeBackend) Initialize(sharedDir, userDir string, firstRun bool) boo
 	return rimeInitOK
 }
 
+func (b *nativeBackend) Redeploy(sharedDir, userDir string) bool {
+	b.DestroySession()
+	if !RimeRedeploy(sharedDir, userDir, APP, APP_VERSION) {
+		log.Println("RIME 重新部署失败")
+		return false
+	}
+	return true
+}
+
+func (b *nativeBackend) SyncUserData() bool {
+	if !SyncUserData() {
+		log.Println("RIME 同步用户数据失败")
+		return false
+	}
+	return true
+}
+
 func (b *nativeBackend) EnsureSession() bool {
 	if b.sessionID != 0 && FindSession(b.sessionID) {
 		return true

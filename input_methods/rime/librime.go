@@ -118,6 +118,7 @@ var (
 		startMaintenance      *syscall.LazyProc
 		joinMaintenanceThread *syscall.LazyProc
 		deployConfigFile      *syscall.LazyProc
+		syncUserData          *syscall.LazyProc
 		createSession         *syscall.LazyProc
 		findSession           *syscall.LazyProc
 		destroySession        *syscall.LazyProc
@@ -152,6 +153,7 @@ func loadRimeDLL(dllPath string) error {
 		startMaintenance      *syscall.LazyProc
 		joinMaintenanceThread *syscall.LazyProc
 		deployConfigFile      *syscall.LazyProc
+		syncUserData          *syscall.LazyProc
 		createSession         *syscall.LazyProc
 		findSession           *syscall.LazyProc
 		destroySession        *syscall.LazyProc
@@ -171,6 +173,7 @@ func loadRimeDLL(dllPath string) error {
 		startMaintenance:      dll.NewProc("RimeStartMaintenance"),
 		joinMaintenanceThread: dll.NewProc("RimeJoinMaintenanceThread"),
 		deployConfigFile:      dll.NewProc("RimeDeployConfigFile"),
+		syncUserData:          dll.NewProc("RimeSyncUserData"),
 		createSession:         dll.NewProc("RimeCreateSession"),
 		findSession:           dll.NewProc("RimeFindSession"),
 		destroySession:        dll.NewProc("RimeDestroySession"),
@@ -367,6 +370,18 @@ func DeployConfigFile(filePath, key string) bool {
 	return boolResult(r1)
 }
 
+func SyncUserData() bool {
+	if rimeProcs.syncUserData == nil {
+		return false
+	}
+	if err := rimeProcs.syncUserData.Find(); err != nil {
+		log.Printf("RIME SyncUserData 不可用: %v", err)
+		return false
+	}
+	r1, _, _ := rimeProcs.syncUserData.Call()
+	return boolResult(r1)
+}
+
 func SetNotificationHandler(handler NotificationHandler) {
 	_ = handler
 }
@@ -388,6 +403,42 @@ func GetVersion() string {
 	}
 	r1, _, _ := rimeProcs.getVersion.Call()
 	return cString((*byte)(unsafe.Pointer(r1)))
+}
+
+func deployKnownConfigFiles(datadir, userdir, appname string) bool {
+	configFiles := []string{
+		filepath.Join(datadir, appname+".yaml"),
+		filepath.Join(userdir, appname+".yaml"),
+		filepath.Join(userdir, "default.custom.yaml"),
+	}
+	for _, configFile := range configFiles {
+		if _, err := os.Stat(configFile); err != nil {
+			continue
+		}
+		if !DeployConfigFile(configFile, "config_version") {
+			log.Printf("部署配置文件失败: %s", configFile)
+			return false
+		}
+	}
+	return true
+}
+
+func initializeEngine(traits RimeTraits, fullcheck bool) bool {
+	if !Init(traits) {
+		log.Println("RIME setup 失败")
+		return false
+	}
+
+	rimeProcs.initialize.Call(0)
+	var fullcheckArg uintptr
+	if fullcheck {
+		fullcheckArg = 1
+	}
+	r1, _, _ := rimeProcs.startMaintenance.Call(fullcheckArg)
+	if boolResult(r1) {
+		rimeProcs.joinMaintenanceThread.Call()
+	}
+	return true
 }
 
 func RimeInit(datadir, userdir, appname, appver string, fullcheck bool) bool {
@@ -413,36 +464,28 @@ func RimeInit(datadir, userdir, appname, appver string, fullcheck bool) bool {
 		DistributionVersion:  appver,
 		AppName:              fmt.Sprintf("Rime.%s", appname),
 	}
-	if !Init(traits) {
-		log.Println("RIME setup 失败")
+	if !initializeEngine(traits, fullcheck) {
 		return false
 	}
 
-	rimeProcs.initialize.Call(0)
-	var fullcheckArg uintptr
-	if fullcheck {
-		fullcheckArg = 1
-	}
-	r1, _, _ := rimeProcs.startMaintenance.Call(fullcheckArg)
-	if boolResult(r1) {
-		rimeProcs.joinMaintenanceThread.Call()
+	return deployKnownConfigFiles(datadir, userdir, appname)
+}
+
+func RimeRedeploy(datadir, userdir, appname, appver string) bool {
+	traits := RimeTraits{
+		SharedDataDir:        datadir,
+		UserDataDir:          userdir,
+		DistributionName:     "Rime",
+		DistributionCodeName: appname,
+		DistributionVersion:  appver,
+		AppName:              fmt.Sprintf("Rime.%s", appname),
 	}
 
-	configFiles := []string{
-		filepath.Join(datadir, appname+".yaml"),
-		filepath.Join(userdir, appname+".yaml"),
-		filepath.Join(userdir, "default.custom.yaml"),
+	Finalize()
+	if !initializeEngine(traits, true) {
+		return false
 	}
-	for _, configFile := range configFiles {
-		if _, err := os.Stat(configFile); err != nil {
-			continue
-		}
-		if !DeployConfigFile(configFile, "config_version") {
-			log.Printf("部署配置文件失败: %s", configFile)
-			return false
-		}
-	}
-	return true
+	return deployKnownConfigFiles(datadir, userdir, appname)
 }
 
 func getContext(sessionId RimeSessionId) (rimeContextC, bool) {
