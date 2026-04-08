@@ -18,6 +18,14 @@ func (b *fakeBackend) Initialize(sharedDir, userDir string, firstRun bool) bool 
 	return true
 }
 
+func (b *fakeBackend) Redeploy(sharedDir, userDir string) bool {
+	return true
+}
+
+func (b *fakeBackend) SyncUserData() bool {
+	return true
+}
+
 func (b *fakeBackend) EnsureSession() bool {
 	return true
 }
@@ -74,7 +82,7 @@ func TestAIHotkeyShowsGeneratedCandidates(t *testing.T) {
 		if len(input.Candidates) != 1 || input.Candidates[0] != "咖啡机" {
 			t.Fatalf("unexpected AI candidates: %#v", input.Candidates)
 		}
-		if !strings.Contains(input.Prompt, "{{composition}}") {
+		if !strings.Contains(input.Prompt, "{{candidate_1}}") {
 			t.Fatalf("expected configured prompt template, got %q", input.Prompt)
 		}
 		return []string{
