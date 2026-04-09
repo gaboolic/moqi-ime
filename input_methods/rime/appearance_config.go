@@ -35,6 +35,83 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateTextColor = "#ffffff"
 		ime.style.CandidateHighlightTextColor = "#000000"
 		return true
+	case "moqi":
+		ime.style.CandidateTheme = "moqi"
+		ime.style.CandidateBackgroundColor = "#000000"
+		ime.style.CandidateHighlightColor = "#ffffff"
+		ime.style.CandidateTextColor = "#ffffff"
+		ime.style.CandidateHighlightTextColor = "#000000"
+		return true
+	case "purple":
+		ime.style.CandidateTheme = "purple"
+		ime.style.CandidateBackgroundColor = "#f3e8ff"
+		ime.style.CandidateHighlightColor = "#8b5cf6"
+		ime.style.CandidateTextColor = "#4c1d95"
+		ime.style.CandidateHighlightTextColor = "#ffffff"
+		return true
+	case "wallgray":
+		ime.style.CandidateTheme = "wallgray"
+		ime.style.CandidateBackgroundColor = "#d6d3d1"
+		ime.style.CandidateHighlightColor = "#94a3b8"
+		ime.style.CandidateTextColor = "#44403c"
+		ime.style.CandidateHighlightTextColor = "#ffffff"
+		return true
+	case "orange":
+		ime.style.CandidateTheme = "orange"
+		ime.style.CandidateBackgroundColor = "#fed7aa"
+		ime.style.CandidateHighlightColor = "#ea580c"
+		ime.style.CandidateTextColor = "#7c2d12"
+		ime.style.CandidateHighlightTextColor = "#ffffff"
+		return true
+	case "redplum":
+		ime.style.CandidateTheme = "redplum"
+		ime.style.CandidateBackgroundColor = "#f8efea"
+		ime.style.CandidateHighlightColor = "#6f1028"
+		ime.style.CandidateTextColor = "#3f1d24"
+		ime.style.CandidateHighlightTextColor = "#fff7f5"
+		return true
+	case "shacheng":
+		ime.style.CandidateTheme = "shacheng"
+		ime.style.CandidateBackgroundColor = "#2f2424"
+		ime.style.CandidateHighlightColor = "#d4af5a"
+		ime.style.CandidateTextColor = "#f6dda0"
+		ime.style.CandidateHighlightTextColor = "#2b1d14"
+		return true
+	case "globe":
+		ime.style.CandidateTheme = "globe"
+		ime.style.CandidateBackgroundColor = "#67d4ff"
+		ime.style.CandidateHighlightColor = "#f4c542"
+		ime.style.CandidateTextColor = "#083344"
+		ime.style.CandidateHighlightTextColor = "#1f2937"
+		return true
+	case "soymilk":
+		ime.style.CandidateTheme = "soymilk"
+		ime.style.CandidateBackgroundColor = "#f4efe6"
+		ime.style.CandidateHighlightColor = "#a3ad6a"
+		ime.style.CandidateTextColor = "#4b4b43"
+		ime.style.CandidateHighlightTextColor = "#1f2917"
+		return true
+	case "chrysanthemum":
+		ime.style.CandidateTheme = "chrysanthemum"
+		ime.style.CandidateBackgroundColor = "#f7f1dc"
+		ime.style.CandidateHighlightColor = "#d6a823"
+		ime.style.CandidateTextColor = "#5b4a1d"
+		ime.style.CandidateHighlightTextColor = "#fffdf5"
+		return true
+	case "qinhuangdao":
+		ime.style.CandidateTheme = "qinhuangdao"
+		ime.style.CandidateBackgroundColor = "#d9edf4"
+		ime.style.CandidateHighlightColor = "#5fa7c7"
+		ime.style.CandidateTextColor = "#1f4f68"
+		ime.style.CandidateHighlightTextColor = "#f8fdff"
+		return true
+	case "bubblegum":
+		ime.style.CandidateTheme = "bubblegum"
+		ime.style.CandidateBackgroundColor = "#ffd6eb"
+		ime.style.CandidateHighlightColor = "#7ee7d8"
+		ime.style.CandidateTextColor = "#7a2e67"
+		ime.style.CandidateHighlightTextColor = "#16313a"
+		return true
 	default:
 		return false
 	}
@@ -218,6 +295,28 @@ func (ime *IME) applyAppearanceCommand(commandID int) bool {
 		ime.applyThemePreset("default")
 	case ID_APPEARANCE_THEME_2:
 		ime.applyThemePreset("theme2")
+	case ID_APPEARANCE_THEME_MOQI:
+		ime.applyThemePreset("moqi")
+	case ID_APPEARANCE_THEME_PURPLE:
+		ime.applyThemePreset("purple")
+	case ID_APPEARANCE_THEME_WALLGRAY:
+		ime.applyThemePreset("wallgray")
+	case ID_APPEARANCE_THEME_ORANGE:
+		ime.applyThemePreset("orange")
+	case ID_APPEARANCE_THEME_REDPLUM:
+		ime.applyThemePreset("redplum")
+	case ID_APPEARANCE_THEME_SHACHENG:
+		ime.applyThemePreset("shacheng")
+	case ID_APPEARANCE_THEME_GLOBE:
+		ime.applyThemePreset("globe")
+	case ID_APPEARANCE_THEME_SOYMILK:
+		ime.applyThemePreset("soymilk")
+	case ID_APPEARANCE_THEME_CHRYSANTHEMUM:
+		ime.applyThemePreset("chrysanthemum")
+	case ID_APPEARANCE_THEME_QINHUANGDAO:
+		ime.applyThemePreset("qinhuangdao")
+	case ID_APPEARANCE_THEME_BUBBLEGUM:
+		ime.applyThemePreset("bubblegum")
 	default:
 		return false
 	}

@@ -31,26 +31,37 @@ const (
 	ID_USER_DIR           = 14
 	ID_LOG_DIR            = 16
 
-	ID_APPEARANCE_INLINE_PREEDIT = 100
-	ID_APPEARANCE_FONT_14        = 110
-	ID_APPEARANCE_FONT_16        = 111
-	ID_APPEARANCE_FONT_18        = 112
-	ID_APPEARANCE_FONT_20        = 113
-	ID_APPEARANCE_FONT_22        = 114
-	ID_APPEARANCE_BG_WHITE       = 120
-	ID_APPEARANCE_BG_WARM        = 121
-	ID_APPEARANCE_BG_BLUE        = 122
-	ID_APPEARANCE_HL_BLUE        = 130
-	ID_APPEARANCE_HL_GRAY        = 131
-	ID_APPEARANCE_HL_GREEN       = 132
-	ID_APPEARANCE_TEXT_BLACK     = 140
-	ID_APPEARANCE_TEXT_DARKGRAY  = 141
-	ID_APPEARANCE_TEXT_BLUE      = 142
-	ID_APPEARANCE_HLTEXT_BLACK   = 145
-	ID_APPEARANCE_HLTEXT_WHITE   = 146
-	ID_APPEARANCE_HLTEXT_BLUE    = 147
-	ID_APPEARANCE_THEME_DEFAULT  = 150
-	ID_APPEARANCE_THEME_2        = 151
+	ID_APPEARANCE_INLINE_PREEDIT      = 100
+	ID_APPEARANCE_FONT_14             = 110
+	ID_APPEARANCE_FONT_16             = 111
+	ID_APPEARANCE_FONT_18             = 112
+	ID_APPEARANCE_FONT_20             = 113
+	ID_APPEARANCE_FONT_22             = 114
+	ID_APPEARANCE_BG_WHITE            = 120
+	ID_APPEARANCE_BG_WARM             = 121
+	ID_APPEARANCE_BG_BLUE             = 122
+	ID_APPEARANCE_HL_BLUE             = 130
+	ID_APPEARANCE_HL_GRAY             = 131
+	ID_APPEARANCE_HL_GREEN            = 132
+	ID_APPEARANCE_TEXT_BLACK          = 140
+	ID_APPEARANCE_TEXT_DARKGRAY       = 141
+	ID_APPEARANCE_TEXT_BLUE           = 142
+	ID_APPEARANCE_HLTEXT_BLACK        = 145
+	ID_APPEARANCE_HLTEXT_WHITE        = 146
+	ID_APPEARANCE_HLTEXT_BLUE         = 147
+	ID_APPEARANCE_THEME_DEFAULT       = 150
+	ID_APPEARANCE_THEME_2             = 151
+	ID_APPEARANCE_THEME_MOQI          = 152
+	ID_APPEARANCE_THEME_PURPLE        = 153
+	ID_APPEARANCE_THEME_WALLGRAY      = 154
+	ID_APPEARANCE_THEME_ORANGE        = 155
+	ID_APPEARANCE_THEME_REDPLUM       = 156
+	ID_APPEARANCE_THEME_SHACHENG      = 157
+	ID_APPEARANCE_THEME_GLOBE         = 158
+	ID_APPEARANCE_THEME_SOYMILK       = 159
+	ID_APPEARANCE_THEME_CHRYSANTHEMUM = 160
+	ID_APPEARANCE_THEME_QINHUANGDAO   = 161
+	ID_APPEARANCE_THEME_BUBBLEGUM     = 162
 
 	aiSelectKeys     = "123456789"
 	aiHotkeyKeyCode  = 0x47 // G
@@ -1058,8 +1069,19 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 		{"text": ""},
 		{"text": "外观(&A)", "submenu": []map[string]interface{}{
 			{"text": "切换主题", "submenu": []map[string]interface{}{
-				{"id": ID_APPEARANCE_THEME_DEFAULT, "text": "默认", "checked": ime.style.CandidateTheme == "default"},
+				{"id": ID_APPEARANCE_THEME_DEFAULT, "text": "默认主题", "checked": ime.style.CandidateTheme == "default"},
 				{"id": ID_APPEARANCE_THEME_2, "text": "橘白", "checked": ime.style.CandidateTheme == "theme2"},
+				{"id": ID_APPEARANCE_THEME_MOQI, "text": "墨奇", "checked": ime.style.CandidateTheme == "moqi"},
+				{"id": ID_APPEARANCE_THEME_PURPLE, "text": "很有韵味", "checked": ime.style.CandidateTheme == "purple"},
+				{"id": ID_APPEARANCE_THEME_WALLGRAY, "text": "墙灰", "checked": ime.style.CandidateTheme == "wallgray"},
+				{"id": ID_APPEARANCE_THEME_ORANGE, "text": "橙狗", "checked": ime.style.CandidateTheme == "orange"},
+				{"id": ID_APPEARANCE_THEME_REDPLUM, "text": "红梅", "checked": ime.style.CandidateTheme == "redplum"},
+				{"id": ID_APPEARANCE_THEME_SHACHENG, "text": "沙城老窖", "checked": ime.style.CandidateTheme == "shacheng"},
+				{"id": ID_APPEARANCE_THEME_GLOBE, "text": "地球仪", "checked": ime.style.CandidateTheme == "globe"},
+				{"id": ID_APPEARANCE_THEME_SOYMILK, "text": "豆浆杯", "checked": ime.style.CandidateTheme == "soymilk"},
+				{"id": ID_APPEARANCE_THEME_CHRYSANTHEMUM, "text": "菊花茶", "checked": ime.style.CandidateTheme == "chrysanthemum"},
+				{"id": ID_APPEARANCE_THEME_QINHUANGDAO, "text": "秦皇岛", "checked": ime.style.CandidateTheme == "qinhuangdao"},
+				{"id": ID_APPEARANCE_THEME_BUBBLEGUM, "text": "歪比巴卜", "checked": ime.style.CandidateTheme == "bubblegum"},
 			}},
 			{"id": ID_APPEARANCE_INLINE_PREEDIT, "text": "行内预编辑", "checked": ime.inlinePreeditEnabled()},
 			{"text": "字体大小", "submenu": []map[string]interface{}{
