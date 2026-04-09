@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/gaboolic/moqi-ime/imecore"
@@ -142,6 +143,7 @@ func (ime *IME) SetAIReviewGenerator(generator func(aiGenerateRequest) ([]string
 
 func (ime *IME) HandleRequest(req *imecore.Request) *imecore.Response {
 	resp := imecore.NewResponse(req.SeqNum, true)
+	log.Printf("RIME 输入法处理请求 client=%s seq=%d method=%s", ime.Client.ID, req.SeqNum, req.Method)
 
 	switch req.Method {
 	case "onActivate":
@@ -330,6 +332,13 @@ func (ime *IME) onMenu(req *imecore.Request, resp *imecore.Response) *imecore.Re
 }
 
 func (ime *IME) Init(req *imecore.Request) bool {
+	initStart := time.Now()
+	firstRun := false
+	backendAvailable := false
+	defer func() {
+		log.Printf("RIME 输入法初始化完成 elapsed=%s firstRun=%t backendAvailable=%t", time.Since(initStart), firstRun, backendAvailable)
+	}()
+
 	log.Println("RIME 输入法初始化")
 	exePath, err := os.Executable()
 	if err != nil {
@@ -349,14 +358,26 @@ func (ime *IME) Init(req *imecore.Request) bool {
 	}
 	userDir := filepath.Join(appData, APP, "Rime")
 	info, statErr := os.Stat(userDir)
-	if statErr != nil || !info.IsDir() {
-		log.Println("未找到用户 RIME 数据目录，原生 RIME 不可用")
+	if statErr != nil {
+		if os.IsNotExist(statErr) {
+			if err := os.MkdirAll(userDir, 0o700); err != nil {
+				log.Printf("创建用户 RIME 数据目录失败，原生 RIME 不可用: %v", err)
+				return true
+			}
+			firstRun = true
+		} else {
+			log.Printf("检查用户 RIME 数据目录失败，原生 RIME 不可用: %v", statErr)
+			return true
+		}
+	} else if !info.IsDir() {
+		log.Printf("用户 RIME 数据目录不是目录，原生 RIME 不可用: %s", userDir)
 		return true
 	}
 
 	real := newNativeBackend()
-	if real != nil && real.Initialize(sharedDir, userDir, false) {
+	if real != nil && real.Initialize(sharedDir, userDir, firstRun) {
 		ime.backend = real
+		backendAvailable = true
 	} else {
 		ime.backend = nil
 	}

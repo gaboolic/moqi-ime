@@ -5,16 +5,17 @@ package rime
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gaboolic/moqi-ime/imecore"
 )
 
-func newRealRimeSession(t *testing.T) RimeSessionId {
+func realRimeTestDirs(t *testing.T) (string, string) {
 	t.Helper()
 
-	wd := "D:\\vscode\\moqi-input-method-projs\\moqi-ime\\input_methods\\rime"
 	appData := os.Getenv("APPDATA")
 	if appData == "" {
 		t.Skip("APPDATA is not set")
@@ -23,7 +24,24 @@ func newRealRimeSession(t *testing.T) RimeSessionId {
 	if info, err := os.Stat(userDir); err != nil || !info.IsDir() {
 		t.Skip("existing user Rime directory is required")
 	}
-	dataDir := filepath.Join(wd, "data")
+
+	dataDirCandidates := []string{
+		filepath.Join(`C:\Program Files (x86)\MoqiIM\moqi-ime`, "input_methods", "rime", "data"),
+		filepath.Join(`D:\vscode\moqi-input-method-projs\moqi-ime`, "input_methods", "rime", "data"),
+	}
+	for _, dataDir := range dataDirCandidates {
+		if info, err := os.Stat(dataDir); err == nil && info.IsDir() {
+			return dataDir, userDir
+		}
+	}
+	t.Skip("usable Rime data directory is required")
+	return "", ""
+}
+
+func newRealRimeSession(t *testing.T) RimeSessionId {
+	t.Helper()
+
+	dataDir, userDir := realRimeTestDirs(t)
 
 	if !RimeInit(dataDir, userDir, APP, APP_VERSION, false) {
 		t.Fatal("RimeInit failed")
@@ -42,6 +60,32 @@ func newRealRimeSession(t *testing.T) RimeSessionId {
 	SetOption(sessionID, "ascii_mode", false)
 	t.Logf("ascii_mode after forcing off: %t", GetOption(sessionID, "ascii_mode"))
 	return sessionID
+}
+
+func TestRealRimeInitDuration(t *testing.T) {
+	dataDir, userDir := realRimeTestDirs(t)
+
+	start := time.Now()
+	if !RimeInit(dataDir, userDir, APP, APP_VERSION, false) {
+		t.Fatal("RimeInit failed")
+	}
+	elapsed := time.Since(start)
+	t.Cleanup(Finalize)
+
+	t.Logf("RimeInit(fullcheck=false) took %s using dataDir=%q userDir=%q", elapsed, dataDir, userDir)
+
+	maxMillisText := strings.TrimSpace(os.Getenv("MOQI_RIME_INIT_MAX_MS"))
+	if maxMillisText == "" {
+		return
+	}
+	maxMillis, err := strconv.Atoi(maxMillisText)
+	if err != nil {
+		t.Fatalf("invalid MOQI_RIME_INIT_MAX_MS value %q: %v", maxMillisText, err)
+	}
+	maxDuration := time.Duration(maxMillis) * time.Millisecond
+	if elapsed > maxDuration {
+		t.Fatalf("RimeInit(fullcheck=false) took %s, exceeded limit %s", elapsed, maxDuration)
+	}
 }
 
 func TestRealRimeCanCommitText(t *testing.T) {

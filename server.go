@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gaboolic/moqi-ime/imecore"
 
@@ -220,7 +221,10 @@ func (s *Server) handleRequest(clientID string, req *imecore.Request) map[string
 		s.clients[clientID] = client
 
 		// 初始化服务
-		if !client.Service.Init(req) {
+		initStart := time.Now()
+		initOK := client.Service.Init(req)
+		log.Printf("初始化服务耗时 client=%s seq=%d guid=%s elapsed=%s success=%t", clientID, req.SeqNum, guid, time.Since(initStart), initOK)
+		if !initOK {
 			delete(s.clients, clientID)
 			log.Printf("初始化失败 client=%s seq=%d guid=%s 原因=Service.Init返回false", clientID, req.SeqNum, guid)
 			return map[string]interface{}{

@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -29,6 +30,10 @@ type RimeTraits struct {
 	DistributionVersion  string
 	AppName              string
 	Modules              []string
+	MinLogLevel          int
+	LogDir               string
+	PrebuiltDataDir      string
+	StagingDir           string
 }
 
 type RimeComposition struct {
@@ -69,6 +74,10 @@ type rimeTraitsC struct {
 	DistributionVersion  *byte
 	AppName              *byte
 	Modules              **byte
+	MinLogLevel          int32
+	LogDir               *byte
+	PrebuiltDataDir      *byte
+	StagingDir           *byte
 }
 
 type rimeCompositionC struct {
@@ -240,6 +249,10 @@ func Init(traits RimeTraits) bool {
 		DistributionCodeName: utf8Ptr(traits.DistributionCodeName),
 		DistributionVersion:  utf8Ptr(traits.DistributionVersion),
 		AppName:              utf8Ptr(traits.AppName),
+		MinLogLevel:          int32(traits.MinLogLevel),
+		LogDir:               utf8Ptr(traits.LogDir),
+		PrebuiltDataDir:      utf8Ptr(traits.PrebuiltDataDir),
+		StagingDir:           utf8Ptr(traits.StagingDir),
 	}
 
 	r1, _, _ := rimeProcs.setup.Call(uintptr(unsafe.Pointer(&cTraits)))
@@ -405,49 +418,57 @@ func GetVersion() string {
 	return cString((*byte)(unsafe.Pointer(r1)))
 }
 
-func deployKnownConfigFiles(datadir, userdir, appname string) bool {
-	configFiles := []string{
-		filepath.Join(datadir, appname+".yaml"),
-		filepath.Join(userdir, appname+".yaml"),
-		filepath.Join(userdir, "default.yaml"),
-		filepath.Join(userdir, "default.custom.yaml"),
-	}
-	for _, configFile := range configFiles {
-		if _, err := os.Stat(configFile); err != nil {
-			continue
-		}
-		if !DeployConfigFile(configFile, "config_version") {
-			log.Printf("部署配置文件失败: %s", configFile)
-			return false
-		}
-	}
-	return true
-}
-
 func initializeEngine(traits RimeTraits, fullcheck bool) bool {
+	start := time.Now()
+	success := false
+	defer func() {
+		log.Printf("RIME initializeEngine 完成 elapsed=%s success=%t fullcheck=%t", time.Since(start), success, fullcheck)
+	}()
+
+	log.Printf("RIME initializeEngine 开始 fullcheck=%t sharedDir=%q userDir=%q prebuiltDir=%q stagingDir=%q", fullcheck, traits.SharedDataDir, traits.UserDataDir, traits.PrebuiltDataDir, traits.StagingDir)
+	setupStart := time.Now()
 	if !Init(traits) {
 		log.Println("RIME setup 失败")
 		return false
 	}
+	log.Printf("RIME initializeEngine setup 完成 elapsed=%s", time.Since(setupStart))
 
+	initializeStart := time.Now()
 	rimeProcs.initialize.Call(0)
+	log.Printf("RIME initializeEngine initialize 完成 elapsed=%s", time.Since(initializeStart))
 	var fullcheckArg uintptr
 	if fullcheck {
 		fullcheckArg = 1
 	}
+	maintenanceStart := time.Now()
 	r1, _, _ := rimeProcs.startMaintenance.Call(fullcheckArg)
-	if boolResult(r1) {
+	maintenanceStarted := boolResult(r1)
+	log.Printf("RIME initializeEngine startMaintenance 完成 elapsed=%s started=%t fullcheck=%t", time.Since(maintenanceStart), maintenanceStarted, fullcheck)
+	if maintenanceStarted {
+		joinStart := time.Now()
 		rimeProcs.joinMaintenanceThread.Call()
+		log.Printf("RIME initializeEngine joinMaintenanceThread 完成 elapsed=%s", time.Since(joinStart))
 	}
+	success = true
 	return true
 }
 
 func RimeInit(datadir, userdir, appname, appver string, fullcheck bool) bool {
+	start := time.Now()
+	success := false
+	defer func() {
+		log.Printf("RIME RimeInit 完成 elapsed=%s success=%t fullcheck=%t datadir=%q userdir=%q", time.Since(start), success, fullcheck, datadir, userdir)
+	}()
+
+	log.Printf("RIME RimeInit 开始 fullcheck=%t datadir=%q userdir=%q appname=%s", fullcheck, datadir, userdir, appname)
+	mkdirStart := time.Now()
 	if err := os.MkdirAll(userdir, 0700); err != nil {
 		log.Printf("创建用户目录失败: %v", err)
 		return false
 	}
+	log.Printf("RIME RimeInit 创建用户目录完成 elapsed=%s", time.Since(mkdirStart))
 
+	dllStart := time.Now()
 	dllPath := filepath.Join(filepath.Dir(datadir), "rime.dll")
 	if _, err := os.Stat(dllPath); err != nil {
 		dllPath = "rime.dll"
@@ -456,6 +477,7 @@ func RimeInit(datadir, userdir, appname, appver string, fullcheck bool) bool {
 		log.Printf("加载 RIME DLL 失败: %v", err)
 		return false
 	}
+	log.Printf("RIME RimeInit 加载DLL完成 elapsed=%s dllPath=%q", time.Since(dllStart), dllPath)
 
 	traits := RimeTraits{
 		SharedDataDir:        datadir,
@@ -464,12 +486,16 @@ func RimeInit(datadir, userdir, appname, appver string, fullcheck bool) bool {
 		DistributionCodeName: appname,
 		DistributionVersion:  appver,
 		AppName:              fmt.Sprintf("Rime.%s", appname),
+		PrebuiltDataDir:      filepath.Join(datadir, "build"),
+		StagingDir:           filepath.Join(userdir, "build"),
 	}
+	engineStart := time.Now()
 	if !initializeEngine(traits, fullcheck) {
 		return false
 	}
-
-	return deployKnownConfigFiles(datadir, userdir, appname)
+	log.Printf("RIME RimeInit initializeEngine 完成 elapsed=%s", time.Since(engineStart))
+	success = true
+	return true
 }
 
 func RimeRedeploy(datadir, userdir, appname, appver string) bool {
@@ -480,13 +506,15 @@ func RimeRedeploy(datadir, userdir, appname, appver string) bool {
 		DistributionCodeName: appname,
 		DistributionVersion:  appver,
 		AppName:              fmt.Sprintf("Rime.%s", appname),
+		PrebuiltDataDir:      filepath.Join(datadir, "build"),
+		StagingDir:           filepath.Join(userdir, "build"),
 	}
 
 	Finalize()
 	if !initializeEngine(traits, true) {
 		return false
 	}
-	return deployKnownConfigFiles(datadir, userdir, appname)
+	return true
 }
 
 func getContext(sessionId RimeSessionId) (rimeContextC, bool) {
