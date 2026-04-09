@@ -31,20 +31,46 @@ const (
 	ID_USER_DIR           = 14
 	ID_LOG_DIR            = 16
 
+	ID_APPEARANCE_INLINE_PREEDIT = 100
+	ID_APPEARANCE_FONT_14        = 110
+	ID_APPEARANCE_FONT_16        = 111
+	ID_APPEARANCE_FONT_18        = 112
+	ID_APPEARANCE_FONT_20        = 113
+	ID_APPEARANCE_FONT_22        = 114
+	ID_APPEARANCE_BG_WHITE       = 120
+	ID_APPEARANCE_BG_WARM        = 121
+	ID_APPEARANCE_BG_BLUE        = 122
+	ID_APPEARANCE_HL_BLUE        = 130
+	ID_APPEARANCE_HL_GRAY        = 131
+	ID_APPEARANCE_HL_GREEN       = 132
+	ID_APPEARANCE_TEXT_BLACK     = 140
+	ID_APPEARANCE_TEXT_DARKGRAY  = 141
+	ID_APPEARANCE_TEXT_BLUE      = 142
+	ID_APPEARANCE_HLTEXT_BLACK   = 145
+	ID_APPEARANCE_HLTEXT_WHITE   = 146
+	ID_APPEARANCE_HLTEXT_BLUE    = 147
+	ID_APPEARANCE_THEME_DEFAULT  = 150
+	ID_APPEARANCE_THEME_2        = 151
+
 	aiSelectKeys     = "123456789"
 	aiHotkeyKeyCode  = 0x47 // G
 	aiCandidateLimit = 3
 )
 
 type Style struct {
-	DisplayTrayIcon    bool
-	CandidateFormat    string
-	CandidatePerRow    int
-	CandidateUseCursor bool
-	FontFace           string
-	FontPoint          int
-	InlinePreedit      string
-	SoftCursor         bool
+	DisplayTrayIcon             bool
+	CandidateFormat             string
+	CandidatePerRow             int
+	CandidateUseCursor          bool
+	CandidateTheme              string
+	CandidateBackgroundColor    string
+	CandidateHighlightColor     string
+	CandidateTextColor          string
+	CandidateHighlightTextColor string
+	FontFace                    string
+	FontPoint                   int
+	InlinePreedit               string
+	SoftCursor                  bool
 }
 
 type candidateItem struct {
@@ -112,22 +138,29 @@ func New(client *imecore.Client) imecore.TextService {
 	}
 	generator := newConfiguredAIReviewGenerator(cfg)
 	actions := defaultAIActions(cfg)
-	return &IME{
+	ime := &IME{
 		TextServiceBase: imecore.NewTextServiceBase(client),
 		style: Style{
-			DisplayTrayIcon:    true,
-			CandidateFormat:    "{0} {1}",
-			CandidatePerRow:    1,
-			CandidateUseCursor: true,
-			FontFace:           "Segoe UI",
-			FontPoint:          20,
-			InlinePreedit:      "composition",
-			SoftCursor:         false,
+			DisplayTrayIcon:             true,
+			CandidateFormat:             "{0} {1}",
+			CandidatePerRow:             1,
+			CandidateUseCursor:          true,
+			CandidateTheme:              "default",
+			CandidateBackgroundColor:    "#ffffff",
+			CandidateHighlightColor:     "#c6ddf9",
+			CandidateTextColor:          "#000000",
+			CandidateHighlightTextColor: "#000000",
+			FontFace:                    "Segoe UI",
+			FontPoint:                   16,
+			InlinePreedit:               "composition",
+			SoftCursor:                  false,
 		},
 		aiEnabled:         generator != nil && len(actions) > 0,
 		aiActions:         actions,
 		aiReviewGenerator: generator,
 	}
+	ime.loadAppearancePrefs()
+	return ime
 }
 
 func (ime *IME) SetAIReviewGenerator(generator func(aiGenerateRequest) ([]string, error)) {
@@ -301,6 +334,12 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 	case ID_LOG_DIR:
 		ime.openPath(filepath.Join(os.Getenv("LOCALAPPDATA"), APP, "Logs"))
 	default:
+		if ime.applyAppearanceCommand(commandID) {
+			resp.CustomizeUI = ime.customizeUIMap()
+			ime.updateLangStatus(req, resp)
+			resp.ReturnValue = 1
+			return resp
+		}
 		log.Printf("未知命令: %d", commandID)
 		resp.ReturnValue = 0
 		return resp
@@ -808,12 +847,7 @@ func (ime *IME) createSession(resp *imecore.Response) {
 		return
 	}
 	if resp != nil {
-		resp.CustomizeUI = map[string]interface{}{
-			"candFontName":  ime.style.FontFace,
-			"candFontSize":  ime.style.FontPoint,
-			"candPerRow":    ime.style.CandidatePerRow,
-			"candUseCursor": ime.style.CandidateUseCursor,
-		}
+		resp.CustomizeUI = ime.customizeUIMap()
 	}
 }
 
@@ -1022,6 +1056,40 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 		{"id": ID_ASCII_PUNCT, "text": punctText},
 		{"id": ID_FULL_SHAPE, "text": shapeText},
 		{"text": ""},
+		{"text": "外观(&A)", "submenu": []map[string]interface{}{
+			{"text": "切换主题", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_THEME_DEFAULT, "text": "默认", "checked": ime.style.CandidateTheme == "default"},
+				{"id": ID_APPEARANCE_THEME_2, "text": "橘白", "checked": ime.style.CandidateTheme == "theme2"},
+			}},
+			{"id": ID_APPEARANCE_INLINE_PREEDIT, "text": "行内预编辑", "checked": ime.inlinePreeditEnabled()},
+			{"text": "字体大小", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_FONT_14, "text": "14", "checked": ime.style.FontPoint == 14},
+				{"id": ID_APPEARANCE_FONT_16, "text": "16", "checked": ime.style.FontPoint == 16},
+				{"id": ID_APPEARANCE_FONT_18, "text": "18", "checked": ime.style.FontPoint == 18},
+				{"id": ID_APPEARANCE_FONT_20, "text": "20", "checked": ime.style.FontPoint == 20},
+				{"id": ID_APPEARANCE_FONT_22, "text": "22", "checked": ime.style.FontPoint == 22},
+			}},
+			{"text": "候选框背景", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_BG_WHITE, "text": "白色", "checked": strings.EqualFold(ime.style.CandidateBackgroundColor, "#ffffff")},
+				{"id": ID_APPEARANCE_BG_WARM, "text": "暖白", "checked": strings.EqualFold(ime.style.CandidateBackgroundColor, "#fff7e8")},
+				{"id": ID_APPEARANCE_BG_BLUE, "text": "浅蓝", "checked": strings.EqualFold(ime.style.CandidateBackgroundColor, "#f3f8ff")},
+			}},
+			{"text": "高亮颜色", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_HL_BLUE, "text": "浅蓝", "checked": strings.EqualFold(ime.style.CandidateHighlightColor, "#c6ddf9")},
+				{"id": ID_APPEARANCE_HL_GRAY, "text": "浅灰", "checked": strings.EqualFold(ime.style.CandidateHighlightColor, "#e5e7eb")},
+				{"id": ID_APPEARANCE_HL_GREEN, "text": "浅绿", "checked": strings.EqualFold(ime.style.CandidateHighlightColor, "#d9f2e6")},
+			}},
+			{"text": "字体颜色", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_TEXT_BLACK, "text": "黑色", "checked": strings.EqualFold(ime.style.CandidateTextColor, "#000000")},
+				{"id": ID_APPEARANCE_TEXT_DARKGRAY, "text": "深灰", "checked": strings.EqualFold(ime.style.CandidateTextColor, "#333333")},
+				{"id": ID_APPEARANCE_TEXT_BLUE, "text": "深蓝", "checked": strings.EqualFold(ime.style.CandidateTextColor, "#1d4ed8")},
+			}},
+			{"text": "高亮文字颜色", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_HLTEXT_BLACK, "text": "黑色", "checked": strings.EqualFold(ime.style.CandidateHighlightTextColor, "#000000")},
+				{"id": ID_APPEARANCE_HLTEXT_WHITE, "text": "白色", "checked": strings.EqualFold(ime.style.CandidateHighlightTextColor, "#ffffff")},
+				{"id": ID_APPEARANCE_HLTEXT_BLUE, "text": "深蓝", "checked": strings.EqualFold(ime.style.CandidateHighlightTextColor, "#1d4ed8")},
+			}},
+		}},
 		{"id": ID_DEPLOY, "text": "重新部署(&D)"},
 		{"id": ID_SYNC, "text": "同步(&S)"},
 		{"text": "打开文件夹(&O)", "submenu": []map[string]interface{}{
