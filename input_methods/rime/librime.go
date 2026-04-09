@@ -409,6 +409,7 @@ func deployKnownConfigFiles(datadir, userdir, appname string) bool {
 	configFiles := []string{
 		filepath.Join(datadir, appname+".yaml"),
 		filepath.Join(userdir, appname+".yaml"),
+		filepath.Join(userdir, "default.yaml"),
 		filepath.Join(userdir, "default.custom.yaml"),
 	}
 	for _, configFile := range configFiles {
