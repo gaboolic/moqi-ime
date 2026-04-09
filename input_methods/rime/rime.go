@@ -120,7 +120,7 @@ func New(client *imecore.Client) imecore.TextService {
 			CandidatePerRow:    1,
 			CandidateUseCursor: true,
 			FontFace:           "Segoe UI",
-			FontPoint:          16,
+			FontPoint:          20,
 			InlinePreedit:      "composition",
 			SoftCursor:         false,
 		},
