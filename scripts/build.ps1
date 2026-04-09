@@ -60,6 +60,50 @@ function Invoke-External {
     return $exitCode
 }
 
+function Get-GoToolExecutablePath {
+    param([string] $ToolName)
+
+    $command = Get-Command $ToolName -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    $goBin = (& go env GOBIN).Trim()
+    if (-not $goBin) {
+        $goPath = (& go env GOPATH).Trim()
+        if (-not $goPath) {
+            throw "Unable to resolve GOPATH for Go tool installation."
+        }
+
+        $firstGoPath = $goPath.Split([System.IO.Path]::PathSeparator)[0]
+        $goBin = Join-Path $firstGoPath "bin"
+    }
+
+    return (Join-Path $goBin ($ToolName + ".exe"))
+}
+
+function Get-GoTool {
+    param(
+        [string] $ToolName,
+        [string] $ModuleAtVersion
+    )
+
+    $toolPath = Get-GoToolExecutablePath -ToolName $ToolName
+    if (Test-Path -LiteralPath $toolPath) {
+        return $toolPath
+    }
+
+    Write-Host "[INFO] Installing Go tool: $ModuleAtVersion"
+    $null = Invoke-External -FilePath "go" -ArgumentList @("install", $ModuleAtVersion)
+
+    $toolPath = Get-GoToolExecutablePath -ToolName $ToolName
+    if (-not (Test-Path -LiteralPath $toolPath)) {
+        throw "Installed Go tool was not found: $toolPath"
+    }
+
+    return $toolPath
+}
+
 function Copy-DirectoryContents {
     param(
         [string] $Source,
@@ -94,6 +138,64 @@ function Prepare-RimeData {
     Write-Host "[INFO] Packaged Rime shared data prepared at `"$PackageRimeDataDir`""
 }
 
+function Write-ServerVersionInfo {
+    param(
+        [string] $VersionInfoPath,
+        [string] $IconPath
+    )
+
+    $versionInfo = [ordered]@{
+        FixedFileInfo  = [ordered]@{
+            FileVersion    = [ordered]@{
+                Major = 1
+                Minor = 0
+                Patch = 0
+                Build = 0
+            }
+            ProductVersion = [ordered]@{
+                Major = 1
+                Minor = 0
+                Patch = 0
+                Build = 0
+            }
+            FileFlagsMask  = "3f"
+            FileFlags      = "00"
+            FileOS         = "040004"
+            FileType       = "01"
+            FileSubType    = "00"
+        }
+        StringFileInfo = [ordered]@{
+            Comments         = ""
+            CompanyName      = ""
+            FileDescription  = "墨奇输入法引擎服务"
+            FileVersion      = "1.0.0.0"
+            InternalName     = "server.exe"
+            LegalCopyright   = ""
+            LegalTrademarks  = ""
+            OriginalFilename = "server.exe"
+            PrivateBuild     = ""
+            ProductName      = "墨奇输入法"
+            ProductVersion   = "1.0.0.0"
+            SpecialBuild     = ""
+        }
+        VarFileInfo    = [ordered]@{
+            Translation = [ordered]@{
+                LangID    = "0804"
+                CharsetID = "04B0"
+            }
+        }
+        IconPath       = $IconPath
+        ManifestPath   = ""
+    }
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText(
+        $VersionInfoPath,
+        ($versionInfo | ConvertTo-Json -Depth 6),
+        $utf8NoBom
+    )
+}
+
 $scriptRepoRoot = Join-Path $PSScriptRoot ".."
 if (-not $RepoRoot) { $RepoRoot = $scriptRepoRoot }
 $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
@@ -111,6 +213,9 @@ $RimeDir = Join-Path $InputMethodsDir "rime"
 $RimeDataDir = Join-Path $RepoRoot "rime-frost"
 $PackageRimeDir = Join-Path $PackageDir "input_methods\rime"
 $PackageRimeDataDir = Join-Path $PackageRimeDir "data"
+$ServerIcon = Join-Path $IconsDir "mo.ico"
+$ServerVersionInfo = Join-Path $BuildRoot "server.versioninfo.json"
+$ServerResource = Join-Path $RepoRoot "resource_windows_amd64.syso"
 
 Write-Host "============================================"
 Write-Host " Moqi IME Go Backend Build Script"
@@ -152,14 +257,24 @@ try {
     $oldGoos = $env:GOOS
     $oldGoarch = $env:GOARCH
     $oldCgoEnabled = $env:CGO_ENABLED
+    $goversioninfo = Get-GoTool -ToolName "goversioninfo" -ModuleAtVersion "github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest"
     $env:GOOS = "windows"
     $env:GOARCH = "amd64"
     $env:CGO_ENABLED = "0"
 
     try {
+        if (-not (Test-Path -LiteralPath $ServerIcon)) {
+            throw "Missing server icon: `"$ServerIcon`""
+        }
+
+        Write-ServerVersionInfo -VersionInfoPath $ServerVersionInfo -IconPath $ServerIcon
+        Remove-IfExists -Path $ServerResource
+        $null = Invoke-External -FilePath $goversioninfo -ArgumentList @("-64", "-o", $ServerResource, $ServerVersionInfo)
         $null = Invoke-External -FilePath "go" -ArgumentList @("build", "-ldflags", "-s -w", "-o", $ServerExe, ".")
     }
     finally {
+        Remove-IfExists -Path $ServerResource
+        Remove-IfExists -Path $ServerVersionInfo
         $env:GOOS = $oldGoos
         $env:GOARCH = $oldGoarch
         $env:CGO_ENABLED = $oldCgoEnabled
