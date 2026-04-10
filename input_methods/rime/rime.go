@@ -63,6 +63,16 @@ const (
 	ID_APPEARANCE_THEME_CHRYSANTHEMUM = 160
 	ID_APPEARANCE_THEME_QINHUANGDAO   = 161
 	ID_APPEARANCE_THEME_BUBBLEGUM     = 162
+	ID_APPEARANCE_LAYOUT_VERTICAL     = 170
+	ID_APPEARANCE_LAYOUT_HORIZONTAL   = 171
+	ID_APPEARANCE_PER_ROW_3           = 180
+	ID_APPEARANCE_PER_ROW_5           = 181
+	ID_APPEARANCE_PER_ROW_7           = 182
+	ID_APPEARANCE_PER_ROW_9           = 183
+	ID_APPEARANCE_CAND_COUNT_3        = 190
+	ID_APPEARANCE_CAND_COUNT_5        = 191
+	ID_APPEARANCE_CAND_COUNT_7        = 192
+	ID_APPEARANCE_CAND_COUNT_9        = 193
 
 	aiSelectKeys     = "123456789"
 	aiHotkeyKeyCode  = 0x47 // G
@@ -73,6 +83,7 @@ type Style struct {
 	DisplayTrayIcon             bool
 	CandidateFormat             string
 	CandidatePerRow             int
+	CandidateCount              int
 	CandidateUseCursor          bool
 	CandidateTheme              string
 	CandidateBackgroundColor    string
@@ -117,6 +128,7 @@ type rimeBackend interface {
 	SchemaList() []RimeSchema
 	CurrentSchemaID() string
 	SelectSchema(schemaID string) bool
+	SetCandidatePageSize(pageSize int) bool
 }
 
 type IME struct {
@@ -146,6 +158,10 @@ type IME struct {
 	aiReviewGenerator  func(aiGenerateRequest) ([]string, error)
 }
 
+var deployConfigFileFunc = DeployConfigFile
+var startMaintenanceFunc = StartMaintenance
+var joinMaintenanceThreadFunc = JoinMaintenanceThread
+
 func New(client *imecore.Client) imecore.TextService {
 	cfg, err := loadAIConfig()
 	if err != nil {
@@ -159,6 +175,7 @@ func New(client *imecore.Client) imecore.TextService {
 			DisplayTrayIcon:             true,
 			CandidateFormat:             "{0} {1}",
 			CandidatePerRow:             1,
+			CandidateCount:              9,
 			CandidateUseCursor:          true,
 			CandidateTheme:              "default",
 			CandidateBackgroundColor:    "#ffffff",
@@ -349,6 +366,7 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 	case ID_LOG_DIR:
 		ime.openPath(filepath.Join(os.Getenv("LOCALAPPDATA"), APP, "Logs"))
 	default:
+		previousCandidateCount := ime.candidateCount()
 		if ime.handleSchemaCommand(commandID) {
 			ime.resetAIState()
 			resp.ReturnValue = 1
@@ -356,7 +374,14 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 			return resp
 		}
 		if ime.applyAppearanceCommand(commandID) {
+			if isCandidateCountCommand(commandID) && ime.candidateCount() != previousCandidateCount {
+				if !ime.applyCandidateCountConfig(resp) {
+					resp.ReturnValue = 0
+					return resp
+				}
+			}
 			resp.CustomizeUI = ime.customizeUIMap()
+			ime.fillResponseFromCurrentState(resp)
 			ime.updateLangStatus(req, resp)
 			resp.ReturnValue = 1
 			return resp
@@ -819,37 +844,7 @@ func (ime *IME) onKey(req *imecore.Request, resp *imecore.Response) bool {
 		return true
 	}
 	ime.updateLangStatus(req, resp)
-	state := ime.backend.State()
-	if state.CommitString != "" {
-		resp.CommitString = state.CommitString
-		ime.rememberAICommit(state.CommitString)
-	}
-	if state.Composition == "" {
-		ime.clearResponse(resp)
-		ime.keyComposing = false
-		return true
-	}
-
-	if state.SelectKeys != "" && state.SelectKeys != ime.selectKeys {
-		resp.SetSelKeys = state.SelectKeys
-		ime.selectKeys = state.SelectKeys
-	}
-
-	resp.CompositionString = state.Composition
-	resp.CursorPos = state.CursorPos
-	resp.CompositionCursor = state.CursorPos
-	resp.SelStart = state.SelStart
-	resp.SelEnd = state.SelEnd
-
-	if len(state.Candidates) > 0 {
-		resp.CandidateList = ime.formatCandidates(state.Candidates)
-		resp.CandidateCursor = state.CandidateCursor
-		resp.ShowCandidates = true
-	} else {
-		resp.ShowCandidates = false
-	}
-	ime.keyComposing = true
-	return true
+	return ime.fillResponseFromBackendState(resp, true)
 }
 
 func (ime *IME) rememberAICommit(commit string) {
@@ -867,6 +862,9 @@ func (ime *IME) createSession(resp *imecore.Response) {
 	if !ime.backend.EnsureSession() {
 		return
 	}
+	if ime.candidateCount() != 9 {
+		_ = ime.backend.SetCandidatePageSize(ime.candidateCount())
+	}
 	if resp != nil {
 		resp.CustomizeUI = ime.customizeUIMap()
 	}
@@ -881,6 +879,35 @@ func (ime *IME) destroySession(resp *imecore.Response) {
 	}
 	ime.keyComposing = false
 	ime.selectKeys = ""
+}
+
+func (ime *IME) applyCandidateCountConfig(resp *imecore.Response) bool {
+	if ime.backend != nil && ime.backend.SetCandidatePageSize(ime.candidateCount()) {
+		ime.keyComposing = false
+		ime.selectKeys = ""
+		return true
+	}
+	if !ime.writeCandidateCountConfig() {
+		return false
+	}
+	maintenanceStarted := startMaintenanceFunc(false)
+	if !deployConfigFileFunc("default.yaml", "config_version") {
+		if maintenanceStarted {
+			joinMaintenanceThreadFunc()
+		}
+		return false
+	}
+	if maintenanceStarted {
+		joinMaintenanceThreadFunc()
+	}
+	ime.resetAIState()
+	if ime.backend != nil {
+		ime.backend.DestroySession()
+	}
+	ime.keyComposing = false
+	ime.selectKeys = ""
+	ime.createSession(resp)
+	return true
 }
 
 func (ime *IME) redeploy(req *imecore.Request, resp *imecore.Response) bool {
@@ -919,6 +946,68 @@ func (ime *IME) clearResponse(resp *imecore.Response) {
 	resp.CandidateList = []string{}
 	resp.CandidateCursor = 0
 	resp.ShowCandidates = false
+}
+
+func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit bool) bool {
+	if resp == nil {
+		return true
+	}
+	if ime.backend == nil {
+		ime.clearResponse(resp)
+		ime.keyComposing = false
+		return true
+	}
+	state := ime.backend.State()
+	visibleCandidateCount := ime.candidateCount()
+	if visibleCandidateCount > 0 && len(state.Candidates) > visibleCandidateCount {
+		state.Candidates = append([]candidateItem(nil), state.Candidates[:visibleCandidateCount]...)
+	}
+	if state.SelectKeys != "" && visibleCandidateCount > 0 && len(state.SelectKeys) > visibleCandidateCount {
+		state.SelectKeys = state.SelectKeys[:visibleCandidateCount]
+	}
+	if allowCommit && state.CommitString != "" {
+		resp.CommitString = state.CommitString
+		ime.rememberAICommit(state.CommitString)
+	}
+	if state.Composition == "" {
+		ime.clearResponse(resp)
+		ime.keyComposing = false
+		return true
+	}
+	if state.SelectKeys != "" && state.SelectKeys != ime.selectKeys {
+		resp.SetSelKeys = state.SelectKeys
+		ime.selectKeys = state.SelectKeys
+	}
+	resp.CompositionString = state.Composition
+	resp.CursorPos = state.CursorPos
+	resp.CompositionCursor = state.CursorPos
+	resp.SelStart = state.SelStart
+	resp.SelEnd = state.SelEnd
+	if len(state.Candidates) > 0 {
+		resp.CandidateList = ime.formatCandidates(state.Candidates)
+		if state.CandidateCursor < 0 {
+			resp.CandidateCursor = 0
+		} else if state.CandidateCursor >= len(state.Candidates) {
+			resp.CandidateCursor = len(state.Candidates) - 1
+		} else {
+			resp.CandidateCursor = state.CandidateCursor
+		}
+		resp.ShowCandidates = true
+	} else {
+		resp.CandidateList = []string{}
+		resp.CandidateCursor = 0
+		resp.ShowCandidates = false
+	}
+	ime.keyComposing = true
+	return true
+}
+
+func (ime *IME) fillResponseFromCurrentState(resp *imecore.Response) {
+	if ime.aiActive {
+		ime.fillAIResponse(resp)
+		return
+	}
+	ime.fillResponseFromBackendState(resp, false)
 }
 
 func (ime *IME) isComposing() bool {
@@ -1162,6 +1251,22 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 				{"id": ID_APPEARANCE_THEME_BUBBLEGUM, "text": "歪比巴卜", "checked": ime.style.CandidateTheme == "bubblegum"},
 			}},
 			{"id": ID_APPEARANCE_INLINE_PREEDIT, "text": "行内预编辑", "checked": ime.inlinePreeditEnabled()},
+			{"text": "候选排列", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_LAYOUT_VERTICAL, "text": "竖排", "checked": !ime.isHorizontalCandidateLayout()},
+				{"id": ID_APPEARANCE_LAYOUT_HORIZONTAL, "text": "横排", "checked": ime.isHorizontalCandidateLayout()},
+			}},
+			{"text": "每行候选数", "enabled": ime.isHorizontalCandidateLayout(), "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_PER_ROW_3, "text": "3", "checked": ime.effectiveCandidatePerRow() == 3, "enabled": ime.isHorizontalCandidateLayout()},
+				{"id": ID_APPEARANCE_PER_ROW_5, "text": "5", "checked": ime.effectiveCandidatePerRow() == 5, "enabled": ime.isHorizontalCandidateLayout()},
+				{"id": ID_APPEARANCE_PER_ROW_7, "text": "7", "checked": ime.effectiveCandidatePerRow() == 7, "enabled": ime.isHorizontalCandidateLayout()},
+				{"id": ID_APPEARANCE_PER_ROW_9, "text": "9", "checked": ime.effectiveCandidatePerRow() == 9, "enabled": ime.isHorizontalCandidateLayout()},
+			}},
+			{"text": "总候选数量", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_CAND_COUNT_3, "text": "3", "checked": ime.candidateCount() == 3},
+				{"id": ID_APPEARANCE_CAND_COUNT_5, "text": "5", "checked": ime.candidateCount() == 5},
+				{"id": ID_APPEARANCE_CAND_COUNT_7, "text": "7", "checked": ime.candidateCount() == 7},
+				{"id": ID_APPEARANCE_CAND_COUNT_9, "text": "9", "checked": ime.candidateCount() == 9},
+			}},
 			{"text": "字体大小", "submenu": []map[string]interface{}{
 				{"id": ID_APPEARANCE_FONT_14, "text": "14", "checked": ime.style.FontPoint == 14},
 				{"id": ID_APPEARANCE_FONT_16, "text": "16", "checked": ime.style.FontPoint == 16},

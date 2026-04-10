@@ -1,6 +1,8 @@
 package rime
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,6 +24,8 @@ type testBackend struct {
 	schemas           []RimeSchema
 	currentSchemaID   string
 	selectSchemaCalls []string
+	pageSizeCalls     []int
+	pageSizeOK        bool
 	redeployCalls     int
 	redeploySharedDir string
 	redeployUserDir   string
@@ -40,6 +44,7 @@ func newTestBackend() *testBackend {
 			{ID: "rime_frost_double_pinyin_flypy", Name: "小鹤双拼"},
 		},
 		currentSchemaID: "rime_frost",
+		pageSizeOK:      false,
 	}
 }
 
@@ -198,6 +203,11 @@ func (b *testBackend) SelectSchema(schemaID string) bool {
 	return false
 }
 
+func (b *testBackend) SetCandidatePageSize(pageSize int) bool {
+	b.pageSizeCalls = append(b.pageSizeCalls, pageSize)
+	return b.pageSizeOK
+}
+
 func (b *testBackend) currentCommit() string {
 	if len(b.candidates) > 0 {
 		return b.candidates[0].Text
@@ -269,6 +279,7 @@ func newTestIME() *IME {
 			DisplayTrayIcon:    true,
 			CandidateFormat:    "{0} {1}",
 			CandidatePerRow:    1,
+			CandidateCount:     9,
 			CandidateUseCursor: false,
 			FontFace:           "MingLiu",
 			FontPoint:          20,
@@ -736,6 +747,428 @@ func TestBuildMenuIncludesSchemaSubmenu(t *testing.T) {
 	}
 	if checked, _ := submenu[1]["checked"].(bool); checked {
 		t.Fatalf("expected non-current schema unchecked, got %#v", submenu[1])
+	}
+}
+
+func TestApplyAppearanceCommandChangesCandidateLayout(t *testing.T) {
+	ime := newTestIME()
+	ime.style.CandidatePerRow = 1
+
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_LAYOUT_HORIZONTAL) {
+		t.Fatal("expected horizontal layout command handled")
+	}
+	if ime.style.CandidatePerRow != 3 {
+		t.Fatalf("expected horizontal layout to default to 3 per row, got %d", ime.style.CandidatePerRow)
+	}
+
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_PER_ROW_5) {
+		t.Fatal("expected per-row command handled")
+	}
+	if ime.style.CandidatePerRow != 5 {
+		t.Fatalf("expected 5 candidates per row, got %d", ime.style.CandidatePerRow)
+	}
+
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_PER_ROW_9) {
+		t.Fatal("expected per-row 9 command handled")
+	}
+	if ime.style.CandidatePerRow != 9 {
+		t.Fatalf("expected 9 candidates per row, got %d", ime.style.CandidatePerRow)
+	}
+
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_LAYOUT_VERTICAL) {
+		t.Fatal("expected vertical layout command handled")
+	}
+	if ime.style.CandidatePerRow != 1 {
+		t.Fatalf("expected vertical layout to force 1 per row, got %d", ime.style.CandidatePerRow)
+	}
+}
+
+func TestEffectiveCandidatePerRowIsCappedByCandidateCount(t *testing.T) {
+	ime := newTestIME()
+	ime.style.CandidatePerRow = 9
+	ime.style.CandidateCount = 3
+
+	if got := ime.effectiveCandidatePerRow(); got != 3 {
+		t.Fatalf("expected effective per-row capped to 3, got %d", got)
+	}
+
+	customizeUI := ime.customizeUIMap()
+	candPerRow, ok := customizeUI["candPerRow"].(int)
+	if !ok {
+		t.Fatalf("expected candPerRow int, got %#v", customizeUI["candPerRow"])
+	}
+	if candPerRow != 3 {
+		t.Fatalf("expected customizeUI candPerRow capped to 3, got %d", candPerRow)
+	}
+}
+
+func TestOnCommandAppearanceRefreshesCurrentCandidates(t *testing.T) {
+	ime := newTestIME()
+	backend := ime.backend.(*testBackend)
+	backend.composition = "ni"
+	backend.refreshCandidates()
+
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 17,
+		ID:     imecore.FlexibleID{Int: ID_APPEARANCE_PER_ROW_5, IsInt: true},
+	}, imecore.NewResponse(17, true))
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected appearance command handled, got %d", resp.ReturnValue)
+	}
+	if ime.style.CandidatePerRow != 5 {
+		t.Fatalf("expected per-row updated to 5, got %d", ime.style.CandidatePerRow)
+	}
+	if resp.CompositionString != "ni" {
+		t.Fatalf("expected current composition returned, got %#v", resp.CompositionString)
+	}
+	if !resp.ShowCandidates || len(resp.CandidateList) == 0 {
+		t.Fatalf("expected current candidates returned for immediate refresh, got %#v", resp)
+	}
+}
+
+func TestOnCommandCandidateCountWritesConfigAndDeploysConfigFile(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	oldDeployConfigFileFunc := deployConfigFileFunc
+	oldStartMaintenanceFunc := startMaintenanceFunc
+	oldJoinMaintenanceThreadFunc := joinMaintenanceThreadFunc
+	deployCalls := 0
+	var deployFile string
+	var deployKey string
+	maintenanceCalls := 0
+	joinCalls := 0
+	deployConfigFileFunc = func(filePath, key string) bool {
+		deployCalls++
+		deployFile = filePath
+		deployKey = key
+		return true
+	}
+	startMaintenanceFunc = func(fullcheck bool) bool {
+		maintenanceCalls++
+		return true
+	}
+	joinMaintenanceThreadFunc = func() {
+		joinCalls++
+	}
+	defer func() {
+		deployConfigFileFunc = oldDeployConfigFileFunc
+		startMaintenanceFunc = oldStartMaintenanceFunc
+		joinMaintenanceThreadFunc = oldJoinMaintenanceThreadFunc
+	}()
+
+	ime := newTestIME()
+	backend := ime.backend.(*testBackend)
+	backend.composition = "ni"
+	backend.candidates = []candidateItem{
+		{Text: "你"},
+		{Text: "呢"},
+		{Text: "泥"},
+		{Text: "尼"},
+		{Text: "拟"},
+		{Text: "逆"},
+	}
+
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 18,
+		ID:     imecore.FlexibleID{Int: ID_APPEARANCE_CAND_COUNT_3, IsInt: true},
+	}, imecore.NewResponse(18, true))
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected candidate count command handled, got %d", resp.ReturnValue)
+	}
+	if ime.style.CandidateCount != 3 {
+		t.Fatalf("expected candidate count updated to 3, got %d", ime.style.CandidateCount)
+	}
+	if backend.redeployCalls != 0 {
+		t.Fatalf("expected candidate count change not to trigger full redeploy, got %d", backend.redeployCalls)
+	}
+	if deployCalls != 1 {
+		t.Fatalf("expected deploy config file called once, got %d", deployCalls)
+	}
+	if maintenanceCalls != 1 || joinCalls != 1 {
+		t.Fatalf("expected maintenance start/join once, got start=%d join=%d", maintenanceCalls, joinCalls)
+	}
+	if deployFile != "default.yaml" || deployKey != "config_version" {
+		t.Fatalf("unexpected deploy config args file=%q key=%q", deployFile, deployKey)
+	}
+	configPath := filepath.Join(os.Getenv("APPDATA"), APP, "Rime", rimeDefaultCustomConfigFileName)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("expected %s written, got err=%v", configPath, err)
+	}
+	if string(data) != "config_version: '3'\npatch:\n  menu/page_size: 3\n" {
+		t.Fatalf("unexpected config content: %q", string(data))
+	}
+}
+
+func TestOnCommandCandidateCountUsesRuntimePageSizeWhenAvailable(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	oldDeployConfigFileFunc := deployConfigFileFunc
+	oldStartMaintenanceFunc := startMaintenanceFunc
+	oldJoinMaintenanceThreadFunc := joinMaintenanceThreadFunc
+	deployConfigFileFunc = func(filePath, key string) bool {
+		t.Fatalf("did not expect deploy config file call, got file=%q key=%q", filePath, key)
+		return false
+	}
+	startMaintenanceFunc = func(fullcheck bool) bool {
+		t.Fatalf("did not expect maintenance start")
+		return false
+	}
+	joinMaintenanceThreadFunc = func() {
+		t.Fatalf("did not expect maintenance join")
+	}
+	defer func() {
+		deployConfigFileFunc = oldDeployConfigFileFunc
+		startMaintenanceFunc = oldStartMaintenanceFunc
+		joinMaintenanceThreadFunc = oldJoinMaintenanceThreadFunc
+	}()
+
+	ime := newTestIME()
+	backend := ime.backend.(*testBackend)
+	backend.pageSizeOK = true
+	backend.composition = "ni"
+	backend.candidates = []candidateItem{
+		{Text: "你"},
+		{Text: "呢"},
+		{Text: "泥"},
+		{Text: "尼"},
+	}
+
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 20,
+		ID:     imecore.FlexibleID{Int: ID_APPEARANCE_CAND_COUNT_3, IsInt: true},
+	}, imecore.NewResponse(20, true))
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected candidate count command handled, got %d", resp.ReturnValue)
+	}
+	if len(backend.pageSizeCalls) == 0 || backend.pageSizeCalls[len(backend.pageSizeCalls)-1] != 3 {
+		t.Fatalf("expected runtime page size call with 3, got %#v", backend.pageSizeCalls)
+	}
+	configPath := filepath.Join(os.Getenv("APPDATA"), APP, "Rime", rimeDefaultCustomConfigFileName)
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("expected no config file write on runtime success, got err=%v", err)
+	}
+}
+
+func TestBuildMenuIncludesCandidateLayoutSubmenus(t *testing.T) {
+	ime := newTestIME()
+	ime.style.CandidatePerRow = 5
+
+	items := ime.buildMenu()
+	var appearanceMenu map[string]interface{}
+	for _, item := range items {
+		text, _ := item["text"].(string)
+		if text == "外观(&A)" {
+			appearanceMenu = item
+			break
+		}
+	}
+	if appearanceMenu == nil {
+		t.Fatalf("expected appearance menu, got %#v", items)
+	}
+
+	submenu, ok := appearanceMenu["submenu"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("expected appearance submenu, got %#v", appearanceMenu["submenu"])
+	}
+
+	var layoutMenu map[string]interface{}
+	var perRowMenu map[string]interface{}
+	for _, item := range submenu {
+		text, _ := item["text"].(string)
+		if text == "候选排列" {
+			layoutMenu = item
+		}
+		if text == "每行候选数" {
+			perRowMenu = item
+		}
+	}
+	if layoutMenu == nil || perRowMenu == nil {
+		t.Fatalf("expected layout menus, got %#v", submenu)
+	}
+
+	layoutItems, ok := layoutMenu["submenu"].([]map[string]interface{})
+	if !ok || len(layoutItems) != 2 {
+		t.Fatalf("expected 2 layout items, got %#v", layoutMenu["submenu"])
+	}
+	if checked, _ := layoutItems[1]["checked"].(bool); !checked {
+		t.Fatalf("expected horizontal layout checked, got %#v", layoutItems[1])
+	}
+
+	perRowItems, ok := perRowMenu["submenu"].([]map[string]interface{})
+	if !ok || len(perRowItems) != 4 {
+		t.Fatalf("expected 4 per-row items, got %#v", perRowMenu["submenu"])
+	}
+	if checked, _ := perRowItems[1]["checked"].(bool); !checked {
+		t.Fatalf("expected 5-per-row checked, got %#v", perRowItems[1])
+	}
+	if enabled, _ := perRowMenu["enabled"].(bool); !enabled {
+		t.Fatalf("expected per-row menu enabled in horizontal mode, got %#v", perRowMenu)
+	}
+}
+
+func TestBuildMenuCapsPerRowHighlightByCandidateCount(t *testing.T) {
+	ime := newTestIME()
+	ime.style.CandidatePerRow = 9
+	ime.style.CandidateCount = 3
+
+	items := ime.buildMenu()
+	var appearanceMenu map[string]interface{}
+	for _, item := range items {
+		text, _ := item["text"].(string)
+		if text == "外观(&A)" {
+			appearanceMenu = item
+			break
+		}
+	}
+	if appearanceMenu == nil {
+		t.Fatalf("expected appearance menu, got %#v", items)
+	}
+
+	submenu, ok := appearanceMenu["submenu"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("expected appearance submenu, got %#v", appearanceMenu["submenu"])
+	}
+
+	var perRowMenu map[string]interface{}
+	for _, item := range submenu {
+		text, _ := item["text"].(string)
+		if text == "每行候选数" {
+			perRowMenu = item
+			break
+		}
+	}
+	if perRowMenu == nil {
+		t.Fatalf("expected per-row menu, got %#v", submenu)
+	}
+
+	perRowItems, ok := perRowMenu["submenu"].([]map[string]interface{})
+	if !ok || len(perRowItems) != 4 {
+		t.Fatalf("expected 4 per-row items, got %#v", perRowMenu["submenu"])
+	}
+
+	if checked, _ := perRowItems[0]["checked"].(bool); !checked {
+		t.Fatalf("expected 3-per-row checked when candidate count is 3, got %#v", perRowItems[0])
+	}
+	if checked, _ := perRowItems[3]["checked"].(bool); checked {
+		t.Fatalf("expected 9-per-row unchecked when candidate count is 3, got %#v", perRowItems[3])
+	}
+}
+
+func TestBuildMenuDisablesPerRowSubmenuInVerticalLayout(t *testing.T) {
+	ime := newTestIME()
+	ime.style.CandidatePerRow = 1
+
+	items := ime.buildMenu()
+	var appearanceMenu map[string]interface{}
+	for _, item := range items {
+		text, _ := item["text"].(string)
+		if text == "外观(&A)" {
+			appearanceMenu = item
+			break
+		}
+	}
+	if appearanceMenu == nil {
+		t.Fatalf("expected appearance menu, got %#v", items)
+	}
+
+	submenu, ok := appearanceMenu["submenu"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("expected appearance submenu, got %#v", appearanceMenu["submenu"])
+	}
+
+	var perRowMenu map[string]interface{}
+	for _, item := range submenu {
+		text, _ := item["text"].(string)
+		if text == "每行候选数" {
+			perRowMenu = item
+			break
+		}
+	}
+	if perRowMenu == nil {
+		t.Fatalf("expected per-row menu, got %#v", submenu)
+	}
+
+	if enabled, _ := perRowMenu["enabled"].(bool); enabled {
+		t.Fatalf("expected per-row menu disabled in vertical mode, got %#v", perRowMenu)
+	}
+	perRowItems, ok := perRowMenu["submenu"].([]map[string]interface{})
+	if !ok || len(perRowItems) != 4 {
+		t.Fatalf("expected 4 per-row items, got %#v", perRowMenu["submenu"])
+	}
+	for _, item := range perRowItems {
+		if enabled, _ := item["enabled"].(bool); enabled {
+			t.Fatalf("expected per-row item disabled in vertical mode, got %#v", item)
+		}
+	}
+}
+
+func TestBuildMenuIncludesCandidateCountSubmenu(t *testing.T) {
+	ime := newTestIME()
+	ime.style.CandidateCount = 7
+
+	items := ime.buildMenu()
+	var appearanceMenu map[string]interface{}
+	for _, item := range items {
+		text, _ := item["text"].(string)
+		if text == "外观(&A)" {
+			appearanceMenu = item
+			break
+		}
+	}
+	if appearanceMenu == nil {
+		t.Fatalf("expected appearance menu, got %#v", items)
+	}
+
+	submenu, ok := appearanceMenu["submenu"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("expected appearance submenu, got %#v", appearanceMenu["submenu"])
+	}
+
+	var countMenu map[string]interface{}
+	for _, item := range submenu {
+		text, _ := item["text"].(string)
+		if text == "总候选数量" {
+			countMenu = item
+			break
+		}
+	}
+	if countMenu == nil {
+		t.Fatalf("expected candidate count menu, got %#v", submenu)
+	}
+
+	countItems, ok := countMenu["submenu"].([]map[string]interface{})
+	if !ok || len(countItems) != 4 {
+		t.Fatalf("expected 4 candidate count items, got %#v", countMenu["submenu"])
+	}
+	if checked, _ := countItems[2]["checked"].(bool); !checked {
+		t.Fatalf("expected 7-count checked, got %#v", countItems[2])
+	}
+}
+
+func TestFillResponseFromBackendStateAppliesCandidateCount(t *testing.T) {
+	ime := newTestIME()
+	ime.style.CandidateCount = 5
+	backend := ime.backend.(*testBackend)
+	backend.composition = "ni"
+	backend.candidates = []candidateItem{
+		{Text: "你"},
+		{Text: "呢"},
+		{Text: "泥"},
+		{Text: "尼"},
+		{Text: "拟"},
+		{Text: "逆"},
+	}
+
+	resp := imecore.NewResponse(19, true)
+	ime.fillResponseFromBackendState(resp, false)
+
+	if len(resp.CandidateList) != 5 {
+		t.Fatalf("expected 5 candidates after truncation, got %#v", resp.CandidateList)
+	}
+	if resp.SetSelKeys != "12345" {
+		t.Fatalf("expected select keys truncated to 12345, got %q", resp.SetSelKeys)
 	}
 }
 

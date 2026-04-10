@@ -63,6 +63,10 @@ func (b *fakeBackend) SelectSchema(schemaID string) bool {
 	return false
 }
 
+func (b *fakeBackend) SetCandidatePageSize(pageSize int) bool {
+	return false
+}
+
 func newTestIMEWithBackend(backend rimeBackend) *IME {
 	ime := New(&imecore.Client{}).(*IME)
 	ime.backend = backend

@@ -133,6 +133,10 @@ type rimeSchemaListC struct {
 	List *rimeSchemaListItemC
 }
 
+type rimeConfigC struct {
+	Ptr uintptr
+}
+
 var (
 	rimeDLLMu sync.Mutex
 	rimeDLL   *syscall.LazyDLL
@@ -159,6 +163,9 @@ var (
 		freeSchemaList        *syscall.LazyProc
 		getCurrentSchema      *syscall.LazyProc
 		selectSchema          *syscall.LazyProc
+		schemaOpen            *syscall.LazyProc
+		configClose           *syscall.LazyProc
+		configSetInt          *syscall.LazyProc
 		getVersion            *syscall.LazyProc
 	}
 )
@@ -198,6 +205,9 @@ func loadRimeDLL(dllPath string) error {
 		freeSchemaList        *syscall.LazyProc
 		getCurrentSchema      *syscall.LazyProc
 		selectSchema          *syscall.LazyProc
+		schemaOpen            *syscall.LazyProc
+		configClose           *syscall.LazyProc
+		configSetInt          *syscall.LazyProc
 		getVersion            *syscall.LazyProc
 	}{
 		setup:                 dll.NewProc("RimeSetup"),
@@ -222,6 +232,9 @@ func loadRimeDLL(dllPath string) error {
 		freeSchemaList:        dll.NewProc("RimeFreeSchemaList"),
 		getCurrentSchema:      dll.NewProc("RimeGetCurrentSchema"),
 		selectSchema:          dll.NewProc("RimeSelectSchema"),
+		schemaOpen:            dll.NewProc("RimeSchemaOpen"),
+		configClose:           dll.NewProc("RimeConfigClose"),
+		configSetInt:          dll.NewProc("RimeConfigSetInt"),
 		getVersion:            dll.NewProc("RimeGetVersion"),
 	}
 
@@ -465,6 +478,32 @@ func SelectSchema(sessionId RimeSessionId, schemaID string) bool {
 	return boolResult(r1)
 }
 
+func SetSchemaPageSize(schemaID string, pageSize int) bool {
+	if schemaID == "" || pageSize <= 0 {
+		return false
+	}
+	if !procAvailable(rimeProcs.schemaOpen) || !procAvailable(rimeProcs.configClose) || !procAvailable(rimeProcs.configSetInt) {
+		return false
+	}
+	var config rimeConfigC
+	cSchemaID := utf8Ptr(schemaID)
+	r1, _, _ := rimeProcs.schemaOpen.Call(uintptr(unsafe.Pointer(cSchemaID)), uintptr(unsafe.Pointer(&config)))
+	runtime.KeepAlive(cSchemaID)
+	if !boolResult(r1) {
+		return false
+	}
+	defer rimeProcs.configClose.Call(uintptr(unsafe.Pointer(&config)))
+
+	cPath := utf8Ptr("menu/page_size")
+	r1, _, _ = rimeProcs.configSetInt.Call(
+		uintptr(unsafe.Pointer(&config)),
+		uintptr(unsafe.Pointer(cPath)),
+		uintptr(pageSize),
+	)
+	runtime.KeepAlive(cPath)
+	return boolResult(r1)
+}
+
 func SelectCandidate(sessionId RimeSessionId, index int) {
 	_ = sessionId
 	_ = index
@@ -482,6 +521,25 @@ func DeployConfigFile(filePath, key string) bool {
 	runtime.KeepAlive(cFile)
 	runtime.KeepAlive(cKey)
 	return boolResult(r1)
+}
+
+func StartMaintenance(fullcheck bool) bool {
+	if !procAvailable(rimeProcs.startMaintenance) {
+		return false
+	}
+	var fullcheckArg uintptr
+	if fullcheck {
+		fullcheckArg = 1
+	}
+	r1, _, _ := rimeProcs.startMaintenance.Call(fullcheckArg)
+	return boolResult(r1)
+}
+
+func JoinMaintenanceThread() {
+	if !procAvailable(rimeProcs.joinMaintenanceThread) {
+		return
+	}
+	rimeProcs.joinMaintenanceThread.Call()
 }
 
 func SyncUserData() bool {

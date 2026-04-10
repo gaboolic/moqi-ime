@@ -2,17 +2,21 @@ package rime
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
 const appearanceConfigFileName = "appearance_config.json"
+const rimeDefaultCustomConfigFileName = "default.custom.yaml"
 
 type appearanceConfig struct {
 	CandidateTheme              *string `json:"candidate_theme,omitempty"`
 	FontPoint                   *int    `json:"font_point,omitempty"`
 	InlinePreedit               *bool   `json:"inline_preedit,omitempty"`
+	CandidatePerRow             *int    `json:"candidate_per_row,omitempty"`
+	CandidateCount              *int    `json:"candidate_count,omitempty"`
 	CandidateBackgroundColor    *string `json:"candidate_background_color,omitempty"`
 	CandidateHighlightColor     *string `json:"candidate_highlight_color,omitempty"`
 	CandidateTextColor          *string `json:"candidate_text_color,omitempty"`
@@ -151,6 +155,12 @@ func (ime *IME) loadAppearancePrefs() {
 			ime.style.InlinePreedit = "external"
 		}
 	}
+	if cfg.CandidatePerRow != nil && *cfg.CandidatePerRow > 0 {
+		ime.style.CandidatePerRow = *cfg.CandidatePerRow
+	}
+	if cfg.CandidateCount != nil && *cfg.CandidateCount > 0 {
+		ime.style.CandidateCount = *cfg.CandidateCount
+	}
 	if cfg.CandidateBackgroundColor != nil && normalizeColor(*cfg.CandidateBackgroundColor) != "" {
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateBackgroundColor = normalizeColor(*cfg.CandidateBackgroundColor)
@@ -180,6 +190,8 @@ func (ime *IME) saveAppearancePrefs() {
 	theme := ime.style.CandidateTheme
 	fontPoint := ime.style.FontPoint
 	inlinePreedit := ime.inlinePreeditEnabled()
+	candidatePerRow := ime.style.CandidatePerRow
+	candidateCount := ime.style.CandidateCount
 	backgroundColor := ime.style.CandidateBackgroundColor
 	highlightColor := ime.style.CandidateHighlightColor
 	textColor := ime.style.CandidateTextColor
@@ -188,6 +200,8 @@ func (ime *IME) saveAppearancePrefs() {
 		CandidateTheme:              &theme,
 		FontPoint:                   &fontPoint,
 		InlinePreedit:               &inlinePreedit,
+		CandidatePerRow:             &candidatePerRow,
+		CandidateCount:              &candidateCount,
 		CandidateBackgroundColor:    &backgroundColor,
 		CandidateHighlightColor:     &highlightColor,
 		CandidateTextColor:          &textColor,
@@ -227,7 +241,7 @@ func (ime *IME) customizeUIMap() map[string]interface{} {
 	return map[string]interface{}{
 		"candFontName":           ime.style.FontFace,
 		"candFontSize":           ime.style.FontPoint,
-		"candPerRow":             ime.style.CandidatePerRow,
+		"candPerRow":             ime.effectiveCandidatePerRow(),
 		"candUseCursor":          ime.style.CandidateUseCursor,
 		"candBackgroundColor":    normalizeColor(ime.style.CandidateBackgroundColor),
 		"candHighlightColor":     normalizeColor(ime.style.CandidateHighlightColor),
@@ -235,6 +249,57 @@ func (ime *IME) customizeUIMap() map[string]interface{} {
 		"candHighlightTextColor": normalizeColor(ime.style.CandidateHighlightTextColor),
 		"inlinePreedit":          ime.inlinePreeditEnabled(),
 	}
+}
+
+func (ime *IME) isHorizontalCandidateLayout() bool {
+	return ime.style.CandidatePerRow > 1
+}
+
+func (ime *IME) horizontalCandidatePerRow() int {
+	switch ime.style.CandidatePerRow {
+	case 3, 5, 7, 9:
+		return ime.style.CandidatePerRow
+	default:
+		return 3
+	}
+}
+
+func (ime *IME) effectiveCandidatePerRow() int {
+	if !ime.isHorizontalCandidateLayout() {
+		return 1
+	}
+	return min(ime.horizontalCandidatePerRow(), ime.candidateCount())
+}
+
+func (ime *IME) candidateCount() int {
+	switch ime.style.CandidateCount {
+	case 3, 5, 7, 9:
+		return ime.style.CandidateCount
+	default:
+		return 9
+	}
+}
+
+func isCandidateCountCommand(commandID int) bool {
+	switch commandID {
+	case ID_APPEARANCE_CAND_COUNT_3, ID_APPEARANCE_CAND_COUNT_5, ID_APPEARANCE_CAND_COUNT_7, ID_APPEARANCE_CAND_COUNT_9:
+		return true
+	default:
+		return false
+	}
+}
+
+func (ime *IME) writeCandidateCountConfig() bool {
+	userDir := ime.userDir()
+	if userDir == "" {
+		return false
+	}
+	if err := os.MkdirAll(userDir, 0o755); err != nil {
+		return false
+	}
+	content := fmt.Sprintf("config_version: '%d'\npatch:\n  menu/page_size: %d\n", ime.candidateCount(), ime.candidateCount())
+	path := filepath.Join(userDir, rimeDefaultCustomConfigFileName)
+	return os.WriteFile(path, []byte(content), 0o644) == nil
 }
 
 func (ime *IME) applyAppearanceCommand(commandID int) bool {
@@ -245,6 +310,26 @@ func (ime *IME) applyAppearanceCommand(commandID int) bool {
 		} else {
 			ime.style.InlinePreedit = "composition"
 		}
+	case ID_APPEARANCE_LAYOUT_VERTICAL:
+		ime.style.CandidatePerRow = 1
+	case ID_APPEARANCE_LAYOUT_HORIZONTAL:
+		ime.style.CandidatePerRow = ime.horizontalCandidatePerRow()
+	case ID_APPEARANCE_PER_ROW_3:
+		ime.style.CandidatePerRow = 3
+	case ID_APPEARANCE_PER_ROW_5:
+		ime.style.CandidatePerRow = 5
+	case ID_APPEARANCE_PER_ROW_7:
+		ime.style.CandidatePerRow = 7
+	case ID_APPEARANCE_PER_ROW_9:
+		ime.style.CandidatePerRow = 9
+	case ID_APPEARANCE_CAND_COUNT_3:
+		ime.style.CandidateCount = 3
+	case ID_APPEARANCE_CAND_COUNT_5:
+		ime.style.CandidateCount = 5
+	case ID_APPEARANCE_CAND_COUNT_7:
+		ime.style.CandidateCount = 7
+	case ID_APPEARANCE_CAND_COUNT_9:
+		ime.style.CandidateCount = 9
 	case ID_APPEARANCE_FONT_14:
 		ime.style.FontPoint = 14
 	case ID_APPEARANCE_FONT_16:

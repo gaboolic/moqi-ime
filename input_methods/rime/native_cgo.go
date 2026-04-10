@@ -149,3 +149,14 @@ func (b *nativeBackend) SelectSchema(schemaID string) bool {
 	}
 	return SelectSchema(b.sessionID, schemaID)
 }
+
+func (b *nativeBackend) SetCandidatePageSize(pageSize int) bool {
+	if !b.EnsureSession() {
+		return false
+	}
+	schemaID := GetCurrentSchema(b.sessionID)
+	if schemaID == "" {
+		return false
+	}
+	return SetSchemaPageSize(schemaID, pageSize)
+}
