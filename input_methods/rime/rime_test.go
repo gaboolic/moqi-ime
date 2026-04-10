@@ -19,6 +19,9 @@ type testBackend struct {
 	commitString      string
 	asciiMode         bool
 	fullShape         bool
+	schemas           []RimeSchema
+	currentSchemaID   string
+	selectSchemaCalls []string
 	redeployCalls     int
 	redeploySharedDir string
 	redeployUserDir   string
@@ -28,7 +31,16 @@ type testBackend struct {
 }
 
 func newTestBackend() *testBackend {
-	return &testBackend{redeployOK: true, syncOK: true}
+	return &testBackend{
+		redeployOK: true,
+		syncOK:     true,
+		schemas: []RimeSchema{
+			{ID: "rime_frost", Name: "白霜拼音"},
+			{ID: "rime_frost_double_pinyin", Name: "自然码双拼"},
+			{ID: "rime_frost_double_pinyin_flypy", Name: "小鹤双拼"},
+		},
+		currentSchemaID: "rime_frost",
+	}
 }
 
 func (b *testBackend) Initialize(sharedDir, userDir string, firstRun bool) bool {
@@ -164,6 +176,26 @@ func (b *testBackend) GetOption(name string) bool {
 	default:
 		return false
 	}
+}
+
+func (b *testBackend) SchemaList() []RimeSchema {
+	return append([]RimeSchema(nil), b.schemas...)
+}
+
+func (b *testBackend) CurrentSchemaID() string {
+	return b.currentSchemaID
+}
+
+func (b *testBackend) SelectSchema(schemaID string) bool {
+	for _, schema := range b.schemas {
+		if schema.ID != schemaID {
+			continue
+		}
+		b.currentSchemaID = schemaID
+		b.selectSchemaCalls = append(b.selectSchemaCalls, schemaID)
+		return true
+	}
+	return false
 }
 
 func (b *testBackend) currentCommit() string {
@@ -639,13 +671,33 @@ func TestOnCommandSyncUserData(t *testing.T) {
 	}
 }
 
+func TestOnCommandSelectSchema(t *testing.T) {
+	ime := newTestIME()
+	backend := ime.backend.(*testBackend)
+
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 15,
+		ID:     imecore.FlexibleID{Int: schemaCommandID(1), IsInt: true},
+	}, imecore.NewResponse(15, true))
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected schema command to succeed, got %d", resp.ReturnValue)
+	}
+	if backend.currentSchemaID != "rime_frost_double_pinyin" {
+		t.Fatalf("expected schema switched to natural double pinyin, got %q", backend.currentSchemaID)
+	}
+	if len(backend.selectSchemaCalls) != 1 || backend.selectSchemaCalls[0] != "rime_frost_double_pinyin" {
+		t.Fatalf("expected select schema call recorded, got %#v", backend.selectSchemaCalls)
+	}
+}
+
 func TestOnMenuReturnsSettingsMenu(t *testing.T) {
 	ime := newTestIME()
 
 	resp := ime.onMenu(&imecore.Request{
-		SeqNum: 15,
+		SeqNum: 16,
 		ID:     imecore.FlexibleID{String: "settings"},
-	}, imecore.NewResponse(15, true))
+	}, imecore.NewResponse(16, true))
 
 	items, ok := resp.ReturnData.([]map[string]interface{})
 	if !ok || len(items) == 0 {
@@ -653,6 +705,37 @@ func TestOnMenuReturnsSettingsMenu(t *testing.T) {
 	}
 	if text, ok := items[0]["text"].(string); !ok || text == "" {
 		t.Fatalf("expected first menu item text, got %#v", items[0])
+	}
+}
+
+func TestBuildMenuIncludesSchemaSubmenu(t *testing.T) {
+	ime := newTestIME()
+
+	items := ime.buildMenu()
+	var schemaMenu map[string]interface{}
+	for _, item := range items {
+		text, _ := item["text"].(string)
+		if text == "输入方案(&I)" {
+			schemaMenu = item
+			break
+		}
+	}
+	if schemaMenu == nil {
+		t.Fatalf("expected schema submenu in menu, got %#v", items)
+	}
+
+	submenu, ok := schemaMenu["submenu"].([]map[string]interface{})
+	if !ok || len(submenu) != 3 {
+		t.Fatalf("expected 3 schema submenu items, got %#v", schemaMenu["submenu"])
+	}
+	if submenu[0]["text"] != "白霜拼音" {
+		t.Fatalf("expected first schema label, got %#v", submenu[0]["text"])
+	}
+	if checked, _ := submenu[0]["checked"].(bool); !checked {
+		t.Fatalf("expected current schema checked, got %#v", submenu[0])
+	}
+	if checked, _ := submenu[1]["checked"].(bool); checked {
+		t.Fatalf("expected non-current schema unchecked, got %#v", submenu[1])
 	}
 }
 

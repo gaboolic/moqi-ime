@@ -30,6 +30,7 @@ const (
 	ID_SHARED_DIR         = 13
 	ID_USER_DIR           = 14
 	ID_LOG_DIR            = 16
+	ID_SCHEMA_BASE        = 1000
 
 	ID_APPEARANCE_INLINE_PREEDIT      = 100
 	ID_APPEARANCE_FONT_14             = 110
@@ -113,6 +114,9 @@ type rimeBackend interface {
 	State() rimeState
 	SetOption(name string, value bool)
 	GetOption(name string) bool
+	SchemaList() []RimeSchema
+	CurrentSchemaID() string
+	SelectSchema(schemaID string) bool
 }
 
 type IME struct {
@@ -345,6 +349,12 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 	case ID_LOG_DIR:
 		ime.openPath(filepath.Join(os.Getenv("LOCALAPPDATA"), APP, "Logs"))
 	default:
+		if ime.handleSchemaCommand(commandID) {
+			ime.resetAIState()
+			resp.ReturnValue = 1
+			ime.updateLangStatus(req, resp)
+			return resp
+		}
 		if ime.applyAppearanceCommand(commandID) {
 			resp.CustomizeUI = ime.customizeUIMap()
 			ime.updateLangStatus(req, resp)
@@ -926,6 +936,64 @@ func (ime *IME) toggleOption(name string) {
 	ime.backend.SetOption(name, !ime.backend.GetOption(name))
 }
 
+func schemaCommandID(index int) int {
+	return ID_SCHEMA_BASE + index
+}
+
+func schemaCommandIndex(commandID int) (int, bool) {
+	index := commandID - ID_SCHEMA_BASE
+	if index < 0 {
+		return 0, false
+	}
+	return index, true
+}
+
+func (ime *IME) schemaMenuItems() []map[string]interface{} {
+	if ime.backend == nil {
+		return nil
+	}
+	schemas := ime.backend.SchemaList()
+	if len(schemas) == 0 {
+		return nil
+	}
+	currentSchemaID := ime.backend.CurrentSchemaID()
+	items := make([]map[string]interface{}, 0, len(schemas))
+	for i, schema := range schemas {
+		text := strings.TrimSpace(schema.Name)
+		if text == "" {
+			text = schema.ID
+		}
+		if text == "" {
+			continue
+		}
+		items = append(items, map[string]interface{}{
+			"id":      schemaCommandID(i),
+			"text":    text,
+			"checked": schema.ID != "" && schema.ID == currentSchemaID,
+		})
+	}
+	return items
+}
+
+func (ime *IME) handleSchemaCommand(commandID int) bool {
+	if ime.backend == nil {
+		return false
+	}
+	index, ok := schemaCommandIndex(commandID)
+	if !ok {
+		return false
+	}
+	schemas := ime.backend.SchemaList()
+	if index < 0 || index >= len(schemas) {
+		return false
+	}
+	schemaID := strings.TrimSpace(schemas[index].ID)
+	if schemaID == "" {
+		return false
+	}
+	return ime.backend.SelectSchema(schemaID)
+}
+
 func (ime *IME) updateLangStatus(req *imecore.Request, resp *imecore.Response) {
 	if !ime.style.DisplayTrayIcon || ime.backend == nil {
 		return
@@ -967,7 +1035,7 @@ func (ime *IME) addButtons(resp *imecore.Response) {
 			resp.AddButton = append(resp.AddButton, imecore.ButtonInfo{
 				ID:        "windows-mode-icon",
 				Icon:      iconPath,
-				Tooltip:   "中西文切换",
+				Tooltip:   "中英文切换",
 				CommandID: ID_MODE_ICON,
 			})
 		}
@@ -976,8 +1044,8 @@ func (ime *IME) addButtons(resp *imecore.Response) {
 		resp.AddButton = append(resp.AddButton, imecore.ButtonInfo{
 			ID:        "switch-lang",
 			Icon:      iconPath,
-			Text:      "中西文切换",
-			Tooltip:   "中西文切换",
+			Text:      "中英文切换",
+			Tooltip:   "中英文切换",
 			CommandID: ID_ASCII_MODE,
 		})
 	}
@@ -1043,6 +1111,7 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 	fullShape := ime.backend != nil && ime.backend.GetOption("full_shape")
 	asciiPunct := ime.backend != nil && ime.backend.GetOption("ascii_punct")
 	traditionalization := ime.backend != nil && ime.backend.GetOption("traditionalization")
+	schemaItems := ime.schemaMenuItems()
 
 	asciiText := "中文 → 英文"
 	if asciiMode {
@@ -1061,13 +1130,22 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 		traditionalizationText = "繁体 → 简体"
 	}
 
-	return []map[string]interface{}{
+	items := []map[string]interface{}{
 		{"id": ID_ASCII_MODE, "text": asciiText},
 		{"id": ID_TRADITIONALIZATION, "text": traditionalizationText},
 		{"id": ID_ASCII_PUNCT, "text": punctText},
 		{"id": ID_FULL_SHAPE, "text": shapeText},
 		{"text": ""},
-		{"text": "外观(&A)", "submenu": []map[string]interface{}{
+	}
+	if len(schemaItems) > 0 {
+		items = append(items, map[string]interface{}{
+			"text":    "输入方案(&I)",
+			"submenu": schemaItems,
+		})
+		items = append(items, map[string]interface{}{"text": ""})
+	}
+	items = append(items,
+		map[string]interface{}{"text": "外观(&A)", "submenu": []map[string]interface{}{
 			{"text": "切换主题", "submenu": []map[string]interface{}{
 				{"id": ID_APPEARANCE_THEME_DEFAULT, "text": "默认主题", "checked": ime.style.CandidateTheme == "default"},
 				{"id": ID_APPEARANCE_THEME_2, "text": "橘白", "checked": ime.style.CandidateTheme == "theme2"},
@@ -1112,15 +1190,16 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 				{"id": ID_APPEARANCE_HLTEXT_BLUE, "text": "深蓝", "checked": strings.EqualFold(ime.style.CandidateHighlightTextColor, "#1d4ed8")},
 			}},
 		}},
-		{"id": ID_DEPLOY, "text": "重新部署(&D)"},
-		{"id": ID_SYNC, "text": "同步(&S)"},
-		{"text": "打开文件夹(&O)", "submenu": []map[string]interface{}{
+		map[string]interface{}{"id": ID_DEPLOY, "text": "重新部署(&D)"},
+		map[string]interface{}{"id": ID_SYNC, "text": "同步(&S)"},
+		map[string]interface{}{"text": "打开文件夹(&O)", "submenu": []map[string]interface{}{
 			{"id": ID_USER_DIR, "text": "用户文件夹"},
 			{"id": ID_SHARED_DIR, "text": "共享文件夹"},
 			{"id": ID_SYNC_DIR, "text": "同步文件夹"},
 			{"id": ID_LOG_DIR, "text": "日志文件夹"},
 		}},
-	}
+	)
+	return items
 }
 
 func (ime *IME) AIHotkeyDescription() string {

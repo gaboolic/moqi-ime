@@ -51,6 +51,18 @@ func (b *fakeBackend) GetOption(name string) bool {
 	return false
 }
 
+func (b *fakeBackend) SchemaList() []RimeSchema {
+	return nil
+}
+
+func (b *fakeBackend) CurrentSchemaID() string {
+	return ""
+}
+
+func (b *fakeBackend) SelectSchema(schemaID string) bool {
+	return false
+}
+
 func newTestIMEWithBackend(backend rimeBackend) *IME {
 	ime := New(&imecore.Client{}).(*IME)
 	ime.backend = backend

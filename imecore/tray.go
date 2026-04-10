@@ -37,7 +37,7 @@ func AddLangButtons(resp *Response, client *Client, asciiMode bool, modeCommandI
 			resp.AddButton = append(resp.AddButton, ButtonInfo{
 				ID:        "windows-mode-icon",
 				Icon:      iconPath,
-				Tooltip:   "中西文切换",
+				Tooltip:   "中英文切换",
 				CommandID: modeCommandID,
 			})
 		}
@@ -46,7 +46,7 @@ func AddLangButtons(resp *Response, client *Client, asciiMode bool, modeCommandI
 		resp.AddButton = append(resp.AddButton, ButtonInfo{
 			ID:        "switch-lang",
 			Icon:      iconPath,
-			Tooltip:   "中西文切换",
+			Tooltip:   "中英文切换",
 			CommandID: langCommandID,
 		})
 	}

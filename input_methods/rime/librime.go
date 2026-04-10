@@ -63,6 +63,11 @@ type RimeCommit struct {
 	Text string
 }
 
+type RimeSchema struct {
+	ID   string
+	Name string
+}
+
 type NotificationHandler func(session RimeSessionId, messageType, messageValue string)
 
 type rimeTraitsC struct {
@@ -117,6 +122,17 @@ type rimeContextC struct {
 	SelectLabels      **byte
 }
 
+type rimeSchemaListItemC struct {
+	SchemaID *byte
+	Name     *byte
+	Reserved uintptr
+}
+
+type rimeSchemaListC struct {
+	Size uint64
+	List *rimeSchemaListItemC
+}
+
 var (
 	rimeDLLMu sync.Mutex
 	rimeDLL   *syscall.LazyDLL
@@ -139,6 +155,10 @@ var (
 		freeContext           *syscall.LazyProc
 		setOption             *syscall.LazyProc
 		getOption             *syscall.LazyProc
+		getSchemaList         *syscall.LazyProc
+		freeSchemaList        *syscall.LazyProc
+		getCurrentSchema      *syscall.LazyProc
+		selectSchema          *syscall.LazyProc
 		getVersion            *syscall.LazyProc
 	}
 )
@@ -174,6 +194,10 @@ func loadRimeDLL(dllPath string) error {
 		freeContext           *syscall.LazyProc
 		setOption             *syscall.LazyProc
 		getOption             *syscall.LazyProc
+		getSchemaList         *syscall.LazyProc
+		freeSchemaList        *syscall.LazyProc
+		getCurrentSchema      *syscall.LazyProc
+		selectSchema          *syscall.LazyProc
 		getVersion            *syscall.LazyProc
 	}{
 		setup:                 dll.NewProc("RimeSetup"),
@@ -194,6 +218,10 @@ func loadRimeDLL(dllPath string) error {
 		freeContext:           dll.NewProc("RimeFreeContext"),
 		setOption:             dll.NewProc("RimeSetOption"),
 		getOption:             dll.NewProc("RimeGetOption"),
+		getSchemaList:         dll.NewProc("RimeGetSchemaList"),
+		freeSchemaList:        dll.NewProc("RimeFreeSchemaList"),
+		getCurrentSchema:      dll.NewProc("RimeGetCurrentSchema"),
+		selectSchema:          dll.NewProc("RimeSelectSchema"),
 		getVersion:            dll.NewProc("RimeGetVersion"),
 	}
 
@@ -238,6 +266,22 @@ func cString(ptr *byte) string {
 
 func boolResult(r1 uintptr) bool {
 	return r1 != 0
+}
+
+func procAvailable(proc *syscall.LazyProc) bool {
+	if proc == nil {
+		return false
+	}
+	return proc.Find() == nil
+}
+
+func cStringFromBytes(buf []byte) string {
+	for i, b := range buf {
+		if b == 0 {
+			return string(buf[:i])
+		}
+	}
+	return string(buf)
 }
 
 func Init(traits RimeTraits) bool {
@@ -361,6 +405,63 @@ func GetOption(sessionId RimeSessionId, option string) bool {
 	name := utf8Ptr(option)
 	r1, _, _ := rimeProcs.getOption.Call(uintptr(sessionId), uintptr(unsafe.Pointer(name)))
 	runtime.KeepAlive(name)
+	return boolResult(r1)
+}
+
+func GetSchemaList() []RimeSchema {
+	if !procAvailable(rimeProcs.getSchemaList) || !procAvailable(rimeProcs.freeSchemaList) {
+		return nil
+	}
+	var schemaList rimeSchemaListC
+	r1, _, _ := rimeProcs.getSchemaList.Call(uintptr(unsafe.Pointer(&schemaList)))
+	if !boolResult(r1) || schemaList.Size == 0 || schemaList.List == nil {
+		return nil
+	}
+	defer rimeProcs.freeSchemaList.Call(uintptr(unsafe.Pointer(&schemaList)))
+
+	items := unsafe.Slice(schemaList.List, int(schemaList.Size))
+	schemas := make([]RimeSchema, 0, len(items))
+	for _, item := range items {
+		schemaID := cString(item.SchemaID)
+		name := cString(item.Name)
+		if schemaID == "" {
+			continue
+		}
+		if name == "" {
+			name = schemaID
+		}
+		schemas = append(schemas, RimeSchema{
+			ID:   schemaID,
+			Name: name,
+		})
+	}
+	return schemas
+}
+
+func GetCurrentSchema(sessionId RimeSessionId) string {
+	if sessionId == 0 || !procAvailable(rimeProcs.getCurrentSchema) {
+		return ""
+	}
+	buf := make([]byte, 256)
+	r1, _, _ := rimeProcs.getCurrentSchema.Call(
+		uintptr(sessionId),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+	)
+	runtime.KeepAlive(buf)
+	if !boolResult(r1) {
+		return ""
+	}
+	return cStringFromBytes(buf)
+}
+
+func SelectSchema(sessionId RimeSessionId, schemaID string) bool {
+	if sessionId == 0 || schemaID == "" || !procAvailable(rimeProcs.selectSchema) {
+		return false
+	}
+	cSchemaID := utf8Ptr(schemaID)
+	r1, _, _ := rimeProcs.selectSchema.Call(uintptr(sessionId), uintptr(unsafe.Pointer(cSchemaID)))
+	runtime.KeepAlive(cSchemaID)
 	return boolResult(r1)
 }
 

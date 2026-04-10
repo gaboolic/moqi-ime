@@ -131,3 +131,21 @@ func (b *nativeBackend) GetOption(name string) bool {
 	}
 	return GetOption(b.sessionID, name)
 }
+
+func (b *nativeBackend) SchemaList() []RimeSchema {
+	return GetSchemaList()
+}
+
+func (b *nativeBackend) CurrentSchemaID() string {
+	if !b.EnsureSession() {
+		return ""
+	}
+	return GetCurrentSchema(b.sessionID)
+}
+
+func (b *nativeBackend) SelectSchema(schemaID string) bool {
+	if !b.EnsureSession() {
+		return false
+	}
+	return SelectSchema(b.sessionID, schemaID)
+}
