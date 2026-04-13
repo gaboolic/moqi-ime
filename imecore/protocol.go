@@ -92,6 +92,20 @@ type MessageWindow struct {
 	Duration int
 }
 
+type TrayNotificationIcon string
+
+const (
+	TrayNotificationIconInfo    TrayNotificationIcon = "info"
+	TrayNotificationIconWarning TrayNotificationIcon = "warning"
+	TrayNotificationIconError   TrayNotificationIcon = "error"
+)
+
+type TrayNotification struct {
+	Title   string
+	Message string
+	Icon    TrayNotificationIcon
+}
+
 type PreservedKeyInfo struct {
 	KeyCode   uint32
 	Modifiers uint32
@@ -121,6 +135,7 @@ type Response struct {
 	RemoveButton       []string
 	ChangeButton       []ButtonInfo
 	ShowMessage        *MessageWindow
+	TrayNotification   *TrayNotification
 	HideMessage        bool
 	OpenKeyboard       bool
 	AddPreservedKey    []PreservedKeyInfo
@@ -230,6 +245,13 @@ func BuildProtoResponse(clientID string, resp *Response) (*moqipb.ServerResponse
 		msg.ShowMessage = &moqipb.MessageWindow{
 			Message:  resp.ShowMessage.Message,
 			Duration: int32(resp.ShowMessage.Duration),
+		}
+	}
+	if resp.TrayNotification != nil {
+		msg.TrayNotification = &moqipb.TrayNotification{
+			Title:   resp.TrayNotification.Title,
+			Message: resp.TrayNotification.Message,
+			Icon:    trayNotificationIconToProto(resp.TrayNotification.Icon),
 		}
 	}
 	for _, btn := range resp.AddButton {
@@ -393,6 +415,17 @@ func customizeUiToProto(data map[string]interface{}) *moqipb.CustomizeUi {
 		ui.CandHighlightTextColor = stringPtrOrNil(value)
 	}
 	return ui
+}
+
+func trayNotificationIconToProto(icon TrayNotificationIcon) moqipb.TrayNotificationIcon {
+	switch icon {
+	case TrayNotificationIconWarning:
+		return moqipb.TrayNotificationIcon_TRAY_NOTIFICATION_ICON_WARNING
+	case TrayNotificationIconError:
+		return moqipb.TrayNotificationIcon_TRAY_NOTIFICATION_ICON_ERROR
+	default:
+		return moqipb.TrayNotificationIcon_TRAY_NOTIFICATION_ICON_INFO
+	}
 }
 
 func menuItemsFromAny(value interface{}) ([]*moqipb.MenuItem, error) {

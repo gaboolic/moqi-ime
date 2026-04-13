@@ -161,6 +161,58 @@ func (ButtonType) EnumDescriptor() ([]byte, []int) {
 	return file_proto_moqi_proto_rawDescGZIP(), []int{1}
 }
 
+type TrayNotificationIcon int32
+
+const (
+	TrayNotificationIcon_TRAY_NOTIFICATION_ICON_UNSPECIFIED TrayNotificationIcon = 0
+	TrayNotificationIcon_TRAY_NOTIFICATION_ICON_INFO        TrayNotificationIcon = 1
+	TrayNotificationIcon_TRAY_NOTIFICATION_ICON_WARNING     TrayNotificationIcon = 2
+	TrayNotificationIcon_TRAY_NOTIFICATION_ICON_ERROR       TrayNotificationIcon = 3
+)
+
+// Enum value maps for TrayNotificationIcon.
+var (
+	TrayNotificationIcon_name = map[int32]string{
+		0: "TRAY_NOTIFICATION_ICON_UNSPECIFIED",
+		1: "TRAY_NOTIFICATION_ICON_INFO",
+		2: "TRAY_NOTIFICATION_ICON_WARNING",
+		3: "TRAY_NOTIFICATION_ICON_ERROR",
+	}
+	TrayNotificationIcon_value = map[string]int32{
+		"TRAY_NOTIFICATION_ICON_UNSPECIFIED": 0,
+		"TRAY_NOTIFICATION_ICON_INFO":        1,
+		"TRAY_NOTIFICATION_ICON_WARNING":     2,
+		"TRAY_NOTIFICATION_ICON_ERROR":       3,
+	}
+)
+
+func (x TrayNotificationIcon) Enum() *TrayNotificationIcon {
+	p := new(TrayNotificationIcon)
+	*p = x
+	return p
+}
+
+func (x TrayNotificationIcon) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TrayNotificationIcon) Descriptor() protoreflect.EnumDescriptor {
+	return file_proto_moqi_proto_enumTypes[2].Descriptor()
+}
+
+func (TrayNotificationIcon) Type() protoreflect.EnumType {
+	return &file_proto_moqi_proto_enumTypes[2]
+}
+
+func (x TrayNotificationIcon) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TrayNotificationIcon.Descriptor instead.
+func (TrayNotificationIcon) EnumDescriptor() ([]byte, []int) {
+	return file_proto_moqi_proto_rawDescGZIP(), []int{2}
+}
+
 type KeyEvent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CharCode      uint32                 `protobuf:"varint,1,opt,name=char_code,json=charCode,proto3" json:"char_code,omitempty"`
@@ -657,6 +709,66 @@ func (x *MessageWindow) GetDuration() int32 {
 	return 0
 }
 
+type TrayNotification struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Title         string                 `protobuf:"bytes,1,opt,name=title,proto3" json:"title,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	Icon          TrayNotificationIcon   `protobuf:"varint,3,opt,name=icon,proto3,enum=moqi.protocol.TrayNotificationIcon" json:"icon,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TrayNotification) Reset() {
+	*x = TrayNotification{}
+	mi := &file_proto_moqi_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TrayNotification) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TrayNotification) ProtoMessage() {}
+
+func (x *TrayNotification) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_moqi_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TrayNotification.ProtoReflect.Descriptor instead.
+func (*TrayNotification) Descriptor() ([]byte, []int) {
+	return file_proto_moqi_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *TrayNotification) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *TrayNotification) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *TrayNotification) GetIcon() TrayNotificationIcon {
+	if x != nil {
+		return x.Icon
+	}
+	return TrayNotificationIcon_TRAY_NOTIFICATION_ICON_UNSPECIFIED
+}
+
 type ClientRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	SeqNum            uint32                 `protobuf:"varint,1,opt,name=seq_num,json=seqNum,proto3" json:"seq_num,omitempty"`
@@ -688,7 +800,7 @@ type ClientRequest struct {
 
 func (x *ClientRequest) Reset() {
 	*x = ClientRequest{}
-	mi := &file_proto_moqi_proto_msgTypes[6]
+	mi := &file_proto_moqi_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -700,7 +812,7 @@ func (x *ClientRequest) String() string {
 func (*ClientRequest) ProtoMessage() {}
 
 func (x *ClientRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_moqi_proto_msgTypes[6]
+	mi := &file_proto_moqi_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -713,7 +825,7 @@ func (x *ClientRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClientRequest.ProtoReflect.Descriptor instead.
 func (*ClientRequest) Descriptor() ([]byte, []int) {
-	return file_proto_moqi_proto_rawDescGZIP(), []int{6}
+	return file_proto_moqi_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ClientRequest) GetSeqNum() uint32 {
@@ -904,13 +1016,14 @@ type ServerResponse struct {
 	AddPreservedKey    []*PreservedKey        `protobuf:"bytes,23,rep,name=add_preserved_key,json=addPreservedKey,proto3" json:"add_preserved_key,omitempty"`
 	RemovePreservedKey []string               `protobuf:"bytes,24,rep,name=remove_preserved_key,json=removePreservedKey,proto3" json:"remove_preserved_key,omitempty"`
 	Error              string                 `protobuf:"bytes,25,opt,name=error,proto3" json:"error,omitempty"`
+	TrayNotification   *TrayNotification      `protobuf:"bytes,26,opt,name=tray_notification,json=trayNotification,proto3,oneof" json:"tray_notification,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ServerResponse) Reset() {
 	*x = ServerResponse{}
-	mi := &file_proto_moqi_proto_msgTypes[7]
+	mi := &file_proto_moqi_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -922,7 +1035,7 @@ func (x *ServerResponse) String() string {
 func (*ServerResponse) ProtoMessage() {}
 
 func (x *ServerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_moqi_proto_msgTypes[7]
+	mi := &file_proto_moqi_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -935,7 +1048,7 @@ func (x *ServerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerResponse.ProtoReflect.Descriptor instead.
 func (*ServerResponse) Descriptor() ([]byte, []int) {
-	return file_proto_moqi_proto_rawDescGZIP(), []int{7}
+	return file_proto_moqi_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ServerResponse) GetClientId() string {
@@ -1113,6 +1226,13 @@ func (x *ServerResponse) GetError() string {
 	return ""
 }
 
+func (x *ServerResponse) GetTrayNotification() *TrayNotification {
+	if x != nil {
+		return x.TrayNotification
+	}
+	return nil
+}
+
 var File_proto_moqi_proto protoreflect.FileDescriptor
 
 const file_proto_moqi_proto_rawDesc = "" +
@@ -1173,7 +1293,11 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x1a_cand_highlight_text_color\"E\n" +
 	"\rMessageWindow\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1a\n" +
-	"\bduration\x18\x02 \x01(\x05R\bduration\"\xad\a\n" +
+	"\bduration\x18\x02 \x01(\x05R\bduration\"{\n" +
+	"\x10TrayNotification\x12\x14\n" +
+	"\x05title\x18\x01 \x01(\tR\x05title\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x127\n" +
+	"\x04icon\x18\x03 \x01(\x0e2#.moqi.protocol.TrayNotificationIconR\x04icon\"\xad\a\n" +
 	"\rClientRequest\x12\x17\n" +
 	"\aseq_num\x18\x01 \x01(\rR\x06seqNum\x12-\n" +
 	"\x06method\x18\x02 \x01(\x0e2\x15.moqi.protocol.MethodR\x06method\x12\x17\n" +
@@ -1211,7 +1335,7 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x13_preserved_key_guidB\x13\n" +
 	"\x11_compartment_guidB\f\n" +
 	"\n" +
-	"_client_id\"\xe7\b\n" +
+	"_client_id\"\xd0\t\n" +
 	"\x0eServerResponse\x12 \n" +
 	"\tclient_id\x18\x01 \x01(\tH\x00R\bclientId\x88\x01\x01\x12\x17\n" +
 	"\aseq_num\x18\x02 \x01(\rR\x06seqNum\x12\x18\n" +
@@ -1242,11 +1366,13 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\ropen_keyboard\x18\x16 \x01(\bR\fopenKeyboard\x12G\n" +
 	"\x11add_preserved_key\x18\x17 \x03(\v2\x1b.moqi.protocol.PreservedKeyR\x0faddPreservedKey\x120\n" +
 	"\x14remove_preserved_key\x18\x18 \x03(\tR\x12removePreservedKey\x12\x14\n" +
-	"\x05error\x18\x19 \x01(\tR\x05errorB\f\n" +
+	"\x05error\x18\x19 \x01(\tR\x05error\x12Q\n" +
+	"\x11tray_notification\x18\x1a \x01(\v2\x1f.moqi.protocol.TrayNotificationH\x03R\x10trayNotification\x88\x01\x01B\f\n" +
 	"\n" +
 	"_client_idB\x0f\n" +
 	"\r_customize_uiB\x0f\n" +
-	"\r_show_message*\xb7\x03\n" +
+	"\r_show_messageB\x14\n" +
+	"\x12_tray_notification*\xb7\x03\n" +
 	"\x06Method\x12\x16\n" +
 	"\x12METHOD_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vMETHOD_INIT\x10\x01\x12\x10\n" +
@@ -1270,7 +1396,12 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x17BUTTON_TYPE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12BUTTON_TYPE_BUTTON\x10\x01\x12\x16\n" +
 	"\x12BUTTON_TYPE_TOGGLE\x10\x02\x12\x14\n" +
-	"\x10BUTTON_TYPE_MENU\x10\x03B+Z)github.com/gaboolic/moqi-ime/proto;moqipbb\x06proto3"
+	"\x10BUTTON_TYPE_MENU\x10\x03*\xa5\x01\n" +
+	"\x14TrayNotificationIcon\x12&\n" +
+	"\"TRAY_NOTIFICATION_ICON_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bTRAY_NOTIFICATION_ICON_INFO\x10\x01\x12\"\n" +
+	"\x1eTRAY_NOTIFICATION_ICON_WARNING\x10\x02\x12 \n" +
+	"\x1cTRAY_NOTIFICATION_ICON_ERROR\x10\x03B+Z)github.com/gaboolic/moqi-ime/proto;moqipbb\x06proto3"
 
 var (
 	file_proto_moqi_proto_rawDescOnce sync.Once
@@ -1284,36 +1415,40 @@ func file_proto_moqi_proto_rawDescGZIP() []byte {
 	return file_proto_moqi_proto_rawDescData
 }
 
-var file_proto_moqi_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_proto_moqi_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_proto_moqi_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_proto_moqi_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_proto_moqi_proto_goTypes = []any{
-	(Method)(0),            // 0: moqi.protocol.Method
-	(ButtonType)(0),        // 1: moqi.protocol.ButtonType
-	(*KeyEvent)(nil),       // 2: moqi.protocol.KeyEvent
-	(*ButtonInfo)(nil),     // 3: moqi.protocol.ButtonInfo
-	(*MenuItem)(nil),       // 4: moqi.protocol.MenuItem
-	(*PreservedKey)(nil),   // 5: moqi.protocol.PreservedKey
-	(*CustomizeUi)(nil),    // 6: moqi.protocol.CustomizeUi
-	(*MessageWindow)(nil),  // 7: moqi.protocol.MessageWindow
-	(*ClientRequest)(nil),  // 8: moqi.protocol.ClientRequest
-	(*ServerResponse)(nil), // 9: moqi.protocol.ServerResponse
+	(Method)(0),               // 0: moqi.protocol.Method
+	(ButtonType)(0),           // 1: moqi.protocol.ButtonType
+	(TrayNotificationIcon)(0), // 2: moqi.protocol.TrayNotificationIcon
+	(*KeyEvent)(nil),          // 3: moqi.protocol.KeyEvent
+	(*ButtonInfo)(nil),        // 4: moqi.protocol.ButtonInfo
+	(*MenuItem)(nil),          // 5: moqi.protocol.MenuItem
+	(*PreservedKey)(nil),      // 6: moqi.protocol.PreservedKey
+	(*CustomizeUi)(nil),       // 7: moqi.protocol.CustomizeUi
+	(*MessageWindow)(nil),     // 8: moqi.protocol.MessageWindow
+	(*TrayNotification)(nil),  // 9: moqi.protocol.TrayNotification
+	(*ClientRequest)(nil),     // 10: moqi.protocol.ClientRequest
+	(*ServerResponse)(nil),    // 11: moqi.protocol.ServerResponse
 }
 var file_proto_moqi_proto_depIdxs = []int32{
 	1,  // 0: moqi.protocol.ButtonInfo.type:type_name -> moqi.protocol.ButtonType
-	4,  // 1: moqi.protocol.MenuItem.submenu:type_name -> moqi.protocol.MenuItem
-	0,  // 2: moqi.protocol.ClientRequest.method:type_name -> moqi.protocol.Method
-	2,  // 3: moqi.protocol.ClientRequest.key_event:type_name -> moqi.protocol.KeyEvent
-	4,  // 4: moqi.protocol.ServerResponse.menu_items:type_name -> moqi.protocol.MenuItem
-	6,  // 5: moqi.protocol.ServerResponse.customize_ui:type_name -> moqi.protocol.CustomizeUi
-	3,  // 6: moqi.protocol.ServerResponse.add_button:type_name -> moqi.protocol.ButtonInfo
-	3,  // 7: moqi.protocol.ServerResponse.change_button:type_name -> moqi.protocol.ButtonInfo
-	7,  // 8: moqi.protocol.ServerResponse.show_message:type_name -> moqi.protocol.MessageWindow
-	5,  // 9: moqi.protocol.ServerResponse.add_preserved_key:type_name -> moqi.protocol.PreservedKey
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	5,  // 1: moqi.protocol.MenuItem.submenu:type_name -> moqi.protocol.MenuItem
+	2,  // 2: moqi.protocol.TrayNotification.icon:type_name -> moqi.protocol.TrayNotificationIcon
+	0,  // 3: moqi.protocol.ClientRequest.method:type_name -> moqi.protocol.Method
+	3,  // 4: moqi.protocol.ClientRequest.key_event:type_name -> moqi.protocol.KeyEvent
+	5,  // 5: moqi.protocol.ServerResponse.menu_items:type_name -> moqi.protocol.MenuItem
+	7,  // 6: moqi.protocol.ServerResponse.customize_ui:type_name -> moqi.protocol.CustomizeUi
+	4,  // 7: moqi.protocol.ServerResponse.add_button:type_name -> moqi.protocol.ButtonInfo
+	4,  // 8: moqi.protocol.ServerResponse.change_button:type_name -> moqi.protocol.ButtonInfo
+	8,  // 9: moqi.protocol.ServerResponse.show_message:type_name -> moqi.protocol.MessageWindow
+	6,  // 10: moqi.protocol.ServerResponse.add_preserved_key:type_name -> moqi.protocol.PreservedKey
+	9,  // 11: moqi.protocol.ServerResponse.tray_notification:type_name -> moqi.protocol.TrayNotification
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_proto_moqi_proto_init() }
@@ -1323,15 +1458,15 @@ func file_proto_moqi_proto_init() {
 	}
 	file_proto_moqi_proto_msgTypes[1].OneofWrappers = []any{}
 	file_proto_moqi_proto_msgTypes[4].OneofWrappers = []any{}
-	file_proto_moqi_proto_msgTypes[6].OneofWrappers = []any{}
 	file_proto_moqi_proto_msgTypes[7].OneofWrappers = []any{}
+	file_proto_moqi_proto_msgTypes[8].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_moqi_proto_rawDesc), len(file_proto_moqi_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   8,
+			NumEnums:      3,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

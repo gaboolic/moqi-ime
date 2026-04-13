@@ -156,6 +156,26 @@ type IME struct {
 	aiActions          []aiAction
 	aiCurrentAction    *aiAction
 	aiReviewGenerator  func(aiGenerateRequest) ([]string, error)
+	appearanceVersion  uint64
+}
+
+func defaultStyle() Style {
+	return Style{
+		DisplayTrayIcon:             true,
+		CandidateFormat:             "{0} {1}",
+		CandidatePerRow:             3,
+		CandidateCount:              9,
+		CandidateUseCursor:          true,
+		CandidateTheme:              "default",
+		CandidateBackgroundColor:    "#ffffff",
+		CandidateHighlightColor:     "#c6ddf9",
+		CandidateTextColor:          "#000000",
+		CandidateHighlightTextColor: "#000000",
+		FontFace:                    "Segoe UI",
+		FontPoint:                   16,
+		InlinePreedit:               "composition",
+		SoftCursor:                  false,
+	}
 }
 
 var deployConfigFileFunc = DeployConfigFile
@@ -171,22 +191,7 @@ func New(client *imecore.Client) imecore.TextService {
 	actions := defaultAIActions(cfg)
 	ime := &IME{
 		TextServiceBase: imecore.NewTextServiceBase(client),
-		style: Style{
-			DisplayTrayIcon:             true,
-			CandidateFormat:             "{0} {1}",
-			CandidatePerRow:             1,
-			CandidateCount:              9,
-			CandidateUseCursor:          true,
-			CandidateTheme:              "default",
-			CandidateBackgroundColor:    "#ffffff",
-			CandidateHighlightColor:     "#c6ddf9",
-			CandidateTextColor:          "#000000",
-			CandidateHighlightTextColor: "#000000",
-			FontFace:                    "Segoe UI",
-			FontPoint:                   16,
-			InlinePreedit:               "composition",
-			SoftCursor:                  false,
-		},
+		style:           defaultStyle(),
 		aiEnabled:         generator != nil && len(actions) > 0,
 		aiActions:         actions,
 		aiReviewGenerator: generator,
@@ -208,6 +213,8 @@ func (ime *IME) SetAIReviewGenerator(generator func(aiGenerateRequest) ([]string
 
 func (ime *IME) HandleRequest(req *imecore.Request) *imecore.Response {
 	resp := imecore.NewResponse(req.SeqNum, true)
+	ime.syncAppearancePrefs()
+	ime.consumeBackendNotification(resp)
 	log.Printf("RIME 输入法处理请求 client=%s seq=%d method=%s", ime.Client.ID, req.SeqNum, req.Method)
 
 	switch req.Method {
@@ -349,6 +356,9 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 		ime.toggleOption("traditionalization")
 	case ID_DEPLOY:
 		if !ime.redeploy(req, resp) {
+			if resp.TrayNotification == nil {
+				resp.TrayNotification = deployTrayNotification(false)
+			}
 			resp.ReturnValue = 0
 			return resp
 		}
@@ -843,6 +853,11 @@ func (ime *IME) onKey(req *imecore.Request, resp *imecore.Response) bool {
 		ime.keyComposing = false
 		return true
 	}
+	if !ime.backendReady() {
+		ime.clearResponse(resp)
+		ime.keyComposing = false
+		return false
+	}
 	ime.updateLangStatus(req, resp)
 	return ime.fillResponseFromBackendState(resp, true)
 }
@@ -856,7 +871,7 @@ func (ime *IME) rememberAICommit(commit string) {
 }
 
 func (ime *IME) createSession(resp *imecore.Response) {
-	if ime.backend == nil {
+	if ime.backend == nil || !ime.backendReady() {
 		return
 	}
 	if !ime.backend.EnsureSession() {
@@ -911,8 +926,6 @@ func (ime *IME) applyCandidateCountConfig(resp *imecore.Response) bool {
 }
 
 func (ime *IME) redeploy(req *imecore.Request, resp *imecore.Response) bool {
-	ime.destroySession(resp)
-
 	sharedDir := ime.sharedDir()
 	userDir := ime.userDir()
 	if sharedDir == "" || userDir == "" {
@@ -927,13 +940,73 @@ func (ime *IME) redeploy(req *imecore.Request, resp *imecore.Response) bool {
 		log.Println("重新部署失败，原生 RIME 后端不可用")
 		return false
 	}
+	if err := ime.reloadAIConfig(); err != nil {
+		log.Printf("重新加载 AI 配置失败: %v", err)
+		return false
+	}
+	ime.destroySession(resp)
+
+	if native, ok := ime.backend.(*nativeBackend); ok {
+		return native.Redeploy(sharedDir, userDir)
+	}
+
 	if !ime.backend.Redeploy(sharedDir, userDir) {
 		log.Printf("重新部署失败，sharedDir=%q userDir=%q", sharedDir, userDir)
 		return false
 	}
-
+	resp.TrayNotification = deployTrayNotification(true)
 	ime.createSession(resp)
 	return ime.onKey(req, resp)
+}
+
+func (ime *IME) backendReady() bool {
+	if ime.backend == nil {
+		return false
+	}
+	if native, ok := ime.backend.(*nativeBackend); ok {
+		return native.Available()
+	}
+	return true
+}
+
+func (ime *IME) consumeBackendNotification(resp *imecore.Response) {
+	if resp == nil {
+		return
+	}
+	native, ok := ime.backend.(*nativeBackend)
+	if !ok {
+		return
+	}
+	if resp.TrayNotification == nil {
+		resp.TrayNotification = native.ConsumeNotification()
+	}
+}
+
+func deployTrayNotification(success bool) *imecore.TrayNotification {
+	notification := &imecore.TrayNotification{
+		Title: "Rime",
+		Icon:  imecore.TrayNotificationIconInfo,
+	}
+	if success {
+		notification.Message = "重新部署成功"
+		return notification
+	}
+	notification.Message = "重新部署失败"
+	notification.Icon = imecore.TrayNotificationIconError
+	return notification
+}
+
+func (ime *IME) reloadAIConfig() error {
+	cfg, err := loadAIConfig()
+	if err != nil {
+		return err
+	}
+	ime.aiReviewGenerator = newConfiguredAIReviewGenerator(cfg)
+	ime.aiActions = defaultAIActions(cfg)
+	ime.aiEnabled = ime.aiReviewGenerator != nil && len(ime.aiActions) > 0
+	ime.resetAIState()
+	log.Printf("AI 配置已重新加载 enabled=%t actions=%d", ime.aiEnabled, len(ime.aiActions))
+	return nil
 }
 
 func (ime *IME) clearResponse(resp *imecore.Response) {
@@ -952,10 +1025,10 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 	if resp == nil {
 		return true
 	}
-	if ime.backend == nil {
+	if ime.backend == nil || !ime.backendReady() {
 		ime.clearResponse(resp)
 		ime.keyComposing = false
-		return true
+		return false
 	}
 	state := ime.backend.State()
 	visibleCandidateCount := ime.candidateCount()
@@ -1295,8 +1368,7 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 				{"id": ID_APPEARANCE_HLTEXT_BLUE, "text": "深蓝", "checked": strings.EqualFold(ime.style.CandidateHighlightTextColor, "#1d4ed8")},
 			}},
 		}},
-		map[string]interface{}{"id": ID_DEPLOY, "text": "重新部署(&D)"},
-		map[string]interface{}{"id": ID_SYNC, "text": "同步(&S)"},
+		map[string]interface{}{"id": ID_DEPLOY, "text": "刷新配置(&R)"},
 		map[string]interface{}{"text": "打开文件夹(&O)", "submenu": []map[string]interface{}{
 			{"id": ID_USER_DIR, "text": "用户文件夹"},
 			{"id": ID_SHARED_DIR, "text": "共享文件夹"},

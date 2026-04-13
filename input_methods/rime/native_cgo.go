@@ -17,7 +17,89 @@ type nativeBackend struct {
 var (
 	rimeInitOnce sync.Once
 	rimeInitOK   bool
+	rimeRuntime  nativeRuntimeState
 )
+
+type nativeRuntimeState struct {
+	mu                  sync.Mutex
+	opMu                sync.RWMutex
+	redeploying         bool
+	pendingNotification *imecore.TrayNotification
+}
+
+var rimeRedeployFunc = RimeRedeploy
+
+func (s *nativeRuntimeState) tryBeginOperation() bool {
+	s.mu.Lock()
+	redeploying := s.redeploying
+	s.mu.Unlock()
+	if redeploying {
+		return false
+	}
+
+	s.opMu.RLock()
+
+	s.mu.Lock()
+	redeploying = s.redeploying
+	s.mu.Unlock()
+	if redeploying {
+		s.opMu.RUnlock()
+		return false
+	}
+	return true
+}
+
+func (s *nativeRuntimeState) endOperation() {
+	s.opMu.RUnlock()
+}
+
+func (s *nativeRuntimeState) startRedeploy(sharedDir, userDir string) bool {
+	s.mu.Lock()
+	if s.redeploying {
+		s.mu.Unlock()
+		return false
+	}
+	s.redeploying = true
+	s.pendingNotification = nil
+	s.mu.Unlock()
+
+	go func() {
+		s.opMu.Lock()
+		success := rimeRedeployFunc(sharedDir, userDir, APP, APP_VERSION)
+		s.opMu.Unlock()
+
+		s.mu.Lock()
+		s.redeploying = false
+		s.pendingNotification = deployTrayNotification(success)
+		s.mu.Unlock()
+	}()
+
+	return true
+}
+
+func (s *nativeRuntimeState) consumeNotification() *imecore.TrayNotification {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.pendingNotification == nil {
+		return nil
+	}
+	notification := s.pendingNotification
+	s.pendingNotification = nil
+	return notification
+}
+
+func (s *nativeRuntimeState) isRedeploying() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.redeploying
+}
+
+func resetNativeRuntimeStateForTest() {
+	rimeRuntime.mu.Lock()
+	rimeRuntime.redeploying = false
+	rimeRuntime.pendingNotification = nil
+	rimeRuntime.mu.Unlock()
+}
 
 func newNativeBackend() rimeBackend {
 	return &nativeBackend{}
@@ -42,14 +124,26 @@ func (b *nativeBackend) Initialize(sharedDir, userDir string, firstRun bool) boo
 
 func (b *nativeBackend) Redeploy(sharedDir, userDir string) bool {
 	b.DestroySession()
-	if !RimeRedeploy(sharedDir, userDir, APP, APP_VERSION) {
-		log.Println("RIME 重新部署失败")
-		return false
+	if !rimeRuntime.startRedeploy(sharedDir, userDir) {
+		log.Println("RIME 已在重新部署中")
+		return true
 	}
 	return true
 }
 
+func (b *nativeBackend) Available() bool {
+	return rimeInitOK && !rimeRuntime.isRedeploying()
+}
+
+func (b *nativeBackend) ConsumeNotification() *imecore.TrayNotification {
+	return rimeRuntime.consumeNotification()
+}
+
 func (b *nativeBackend) SyncUserData() bool {
+	if !rimeRuntime.tryBeginOperation() {
+		return false
+	}
+	defer rimeRuntime.endOperation()
 	if !SyncUserData() {
 		log.Println("RIME 同步用户数据失败")
 		return false
@@ -57,7 +151,7 @@ func (b *nativeBackend) SyncUserData() bool {
 	return true
 }
 
-func (b *nativeBackend) EnsureSession() bool {
+func (b *nativeBackend) ensureSessionLocked() bool {
 	if b.sessionID != 0 && FindSession(b.sessionID) {
 		return true
 	}
@@ -68,7 +162,20 @@ func (b *nativeBackend) EnsureSession() bool {
 	return ok
 }
 
+func (b *nativeBackend) EnsureSession() bool {
+	if !rimeRuntime.tryBeginOperation() {
+		return false
+	}
+	defer rimeRuntime.endOperation()
+	return b.ensureSessionLocked()
+}
+
 func (b *nativeBackend) DestroySession() {
+	if !rimeRuntime.tryBeginOperation() {
+		b.sessionID = 0
+		return
+	}
+	defer rimeRuntime.endOperation()
 	if b.sessionID != 0 {
 		EndSession(b.sessionID)
 		b.sessionID = 0
@@ -76,13 +183,21 @@ func (b *nativeBackend) DestroySession() {
 }
 
 func (b *nativeBackend) ClearComposition() {
+	if !rimeRuntime.tryBeginOperation() {
+		return
+	}
+	defer rimeRuntime.endOperation()
 	if b.sessionID != 0 {
 		ClearComposition(b.sessionID)
 	}
 }
 
 func (b *nativeBackend) ProcessKey(req *imecore.Request, translatedKeyCode, modifiers int) bool {
-	if !b.EnsureSession() {
+	if !rimeRuntime.tryBeginOperation() {
+		return false
+	}
+	defer rimeRuntime.endOperation()
+	if !b.ensureSessionLocked() {
 		return false
 	}
 	return ProcessKey(b.sessionID, translatedKeyCode, modifiers)
@@ -90,6 +205,10 @@ func (b *nativeBackend) ProcessKey(req *imecore.Request, translatedKeyCode, modi
 
 func (b *nativeBackend) State() rimeState {
 	state := rimeState{}
+	if !rimeRuntime.tryBeginOperation() {
+		return state
+	}
+	defer rimeRuntime.endOperation()
 	if b.sessionID == 0 {
 		return state
 	}
@@ -120,38 +239,62 @@ func (b *nativeBackend) State() rimeState {
 }
 
 func (b *nativeBackend) SetOption(name string, value bool) {
-	if b.EnsureSession() {
+	if !rimeRuntime.tryBeginOperation() {
+		return
+	}
+	defer rimeRuntime.endOperation()
+	if b.ensureSessionLocked() {
 		SetOption(b.sessionID, name, value)
 	}
 }
 
 func (b *nativeBackend) GetOption(name string) bool {
-	if !b.EnsureSession() {
+	if !rimeRuntime.tryBeginOperation() {
+		return false
+	}
+	defer rimeRuntime.endOperation()
+	if !b.ensureSessionLocked() {
 		return false
 	}
 	return GetOption(b.sessionID, name)
 }
 
 func (b *nativeBackend) SchemaList() []RimeSchema {
+	if !rimeRuntime.tryBeginOperation() {
+		return nil
+	}
+	defer rimeRuntime.endOperation()
 	return GetSchemaList()
 }
 
 func (b *nativeBackend) CurrentSchemaID() string {
-	if !b.EnsureSession() {
+	if !rimeRuntime.tryBeginOperation() {
+		return ""
+	}
+	defer rimeRuntime.endOperation()
+	if !b.ensureSessionLocked() {
 		return ""
 	}
 	return GetCurrentSchema(b.sessionID)
 }
 
 func (b *nativeBackend) SelectSchema(schemaID string) bool {
-	if !b.EnsureSession() {
+	if !rimeRuntime.tryBeginOperation() {
+		return false
+	}
+	defer rimeRuntime.endOperation()
+	if !b.ensureSessionLocked() {
 		return false
 	}
 	return SelectSchema(b.sessionID, schemaID)
 }
 
 func (b *nativeBackend) SetCandidatePageSize(pageSize int) bool {
-	if !b.EnsureSession() {
+	if !rimeRuntime.tryBeginOperation() {
+		return false
+	}
+	defer rimeRuntime.endOperation()
+	if !b.ensureSessionLocked() {
 		return false
 	}
 	schemaID := GetCurrentSchema(b.sessionID)

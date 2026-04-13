@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 const appearanceConfigFileName = "appearance_config.json"
@@ -21,6 +22,77 @@ type appearanceConfig struct {
 	CandidateHighlightColor     *string `json:"candidate_highlight_color,omitempty"`
 	CandidateTextColor          *string `json:"candidate_text_color,omitempty"`
 	CandidateHighlightTextColor *string `json:"candidate_highlight_text_color,omitempty"`
+}
+
+var appearanceState struct {
+	mu      sync.RWMutex
+	version uint64
+	cfg     appearanceConfig
+	loaded  bool
+}
+
+func cloneStringPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	v := *value
+	return &v
+}
+
+func cloneIntPtr(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	v := *value
+	return &v
+}
+
+func cloneBoolPtr(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	v := *value
+	return &v
+}
+
+func cloneAppearanceConfig(cfg appearanceConfig) appearanceConfig {
+	return appearanceConfig{
+		CandidateTheme:              cloneStringPtr(cfg.CandidateTheme),
+		FontPoint:                   cloneIntPtr(cfg.FontPoint),
+		InlinePreedit:               cloneBoolPtr(cfg.InlinePreedit),
+		CandidatePerRow:             cloneIntPtr(cfg.CandidatePerRow),
+		CandidateCount:              cloneIntPtr(cfg.CandidateCount),
+		CandidateBackgroundColor:    cloneStringPtr(cfg.CandidateBackgroundColor),
+		CandidateHighlightColor:     cloneStringPtr(cfg.CandidateHighlightColor),
+		CandidateTextColor:          cloneStringPtr(cfg.CandidateTextColor),
+		CandidateHighlightTextColor: cloneStringPtr(cfg.CandidateHighlightTextColor),
+	}
+}
+
+func sharedAppearanceConfig() (appearanceConfig, uint64, bool) {
+	appearanceState.mu.RLock()
+	defer appearanceState.mu.RUnlock()
+	if !appearanceState.loaded {
+		return appearanceConfig{}, 0, false
+	}
+	return cloneAppearanceConfig(appearanceState.cfg), appearanceState.version, true
+}
+
+func setSharedAppearanceConfig(cfg appearanceConfig) uint64 {
+	appearanceState.mu.Lock()
+	defer appearanceState.mu.Unlock()
+	appearanceState.version++
+	appearanceState.cfg = cloneAppearanceConfig(cfg)
+	appearanceState.loaded = true
+	return appearanceState.version
+}
+
+func resetSharedAppearanceConfigForTest() {
+	appearanceState.mu.Lock()
+	defer appearanceState.mu.Unlock()
+	appearanceState.version = 0
+	appearanceState.cfg = appearanceConfig{}
+	appearanceState.loaded = false
 }
 
 func (ime *IME) applyThemePreset(theme string) bool {
@@ -121,6 +193,15 @@ func (ime *IME) applyThemePreset(theme string) bool {
 	}
 }
 
+func isBuiltinTheme(theme string) bool {
+	switch strings.ToLower(strings.TrimSpace(theme)) {
+	case "default", "theme2", "moqi", "purple", "wallgray", "orange", "redplum", "shacheng", "globe", "soymilk", "chrysanthemum", "qinhuangdao", "bubblegum":
+		return true
+	default:
+		return false
+	}
+}
+
 func userAppearanceConfigPath() string {
 	appData := os.Getenv("APPDATA")
 	if appData == "" {
@@ -129,21 +210,13 @@ func userAppearanceConfigPath() string {
 	return filepath.Join(appData, APP, "Rime", appearanceConfigFileName)
 }
 
-func (ime *IME) loadAppearancePrefs() {
-	path := userAppearanceConfigPath()
-	if path == "" {
-		return
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	var cfg appearanceConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return
-	}
-	if cfg.CandidateTheme != nil && !ime.applyThemePreset(*cfg.CandidateTheme) {
-		ime.style.CandidateTheme = strings.ToLower(strings.TrimSpace(*cfg.CandidateTheme))
+func (ime *IME) applyAppearanceConfig(cfg appearanceConfig) {
+	themeName := strings.TrimSpace(ime.style.CandidateTheme)
+	if cfg.CandidateTheme != nil {
+		themeName = strings.ToLower(strings.TrimSpace(*cfg.CandidateTheme))
+		if !ime.applyThemePreset(*cfg.CandidateTheme) {
+			ime.style.CandidateTheme = themeName
+		}
 	}
 	if cfg.FontPoint != nil && *cfg.FontPoint > 0 {
 		ime.style.FontPoint = *cfg.FontPoint
@@ -161,22 +234,45 @@ func (ime *IME) loadAppearancePrefs() {
 	if cfg.CandidateCount != nil && *cfg.CandidateCount > 0 {
 		ime.style.CandidateCount = *cfg.CandidateCount
 	}
-	if cfg.CandidateBackgroundColor != nil && normalizeColor(*cfg.CandidateBackgroundColor) != "" {
+	allowCustomColors := !isBuiltinTheme(themeName) || themeName == "custom"
+	if allowCustomColors && cfg.CandidateBackgroundColor != nil && normalizeColor(*cfg.CandidateBackgroundColor) != "" {
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateBackgroundColor = normalizeColor(*cfg.CandidateBackgroundColor)
 	}
-	if cfg.CandidateHighlightColor != nil && normalizeColor(*cfg.CandidateHighlightColor) != "" {
+	if allowCustomColors && cfg.CandidateHighlightColor != nil && normalizeColor(*cfg.CandidateHighlightColor) != "" {
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateHighlightColor = normalizeColor(*cfg.CandidateHighlightColor)
 	}
-	if cfg.CandidateTextColor != nil && normalizeColor(*cfg.CandidateTextColor) != "" {
+	if allowCustomColors && cfg.CandidateTextColor != nil && normalizeColor(*cfg.CandidateTextColor) != "" {
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateTextColor = normalizeColor(*cfg.CandidateTextColor)
 	}
-	if cfg.CandidateHighlightTextColor != nil && normalizeColor(*cfg.CandidateHighlightTextColor) != "" {
+	if allowCustomColors && cfg.CandidateHighlightTextColor != nil && normalizeColor(*cfg.CandidateHighlightTextColor) != "" {
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateHighlightTextColor = normalizeColor(*cfg.CandidateHighlightTextColor)
 	}
+}
+
+func (ime *IME) loadAppearancePrefs() {
+	if cfg, version, ok := sharedAppearanceConfig(); ok {
+		ime.applyAppearanceConfig(cfg)
+		ime.appearanceVersion = version
+		return
+	}
+	path := userAppearanceConfigPath()
+	if path == "" {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var cfg appearanceConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return
+	}
+	ime.applyAppearanceConfig(cfg)
+	ime.appearanceVersion = setSharedAppearanceConfig(cfg)
 }
 
 func (ime *IME) saveAppearancePrefs() {
@@ -192,26 +288,40 @@ func (ime *IME) saveAppearancePrefs() {
 	inlinePreedit := ime.inlinePreeditEnabled()
 	candidatePerRow := ime.style.CandidatePerRow
 	candidateCount := ime.style.CandidateCount
-	backgroundColor := ime.style.CandidateBackgroundColor
-	highlightColor := ime.style.CandidateHighlightColor
-	textColor := ime.style.CandidateTextColor
-	highlightTextColor := ime.style.CandidateHighlightTextColor
 	cfg := appearanceConfig{
-		CandidateTheme:              &theme,
-		FontPoint:                   &fontPoint,
-		InlinePreedit:               &inlinePreedit,
-		CandidatePerRow:             &candidatePerRow,
-		CandidateCount:              &candidateCount,
-		CandidateBackgroundColor:    &backgroundColor,
-		CandidateHighlightColor:     &highlightColor,
-		CandidateTextColor:          &textColor,
-		CandidateHighlightTextColor: &highlightTextColor,
+		CandidateTheme:  &theme,
+		FontPoint:       &fontPoint,
+		InlinePreedit:   &inlinePreedit,
+		CandidatePerRow: &candidatePerRow,
+		CandidateCount:  &candidateCount,
+	}
+	if !isBuiltinTheme(theme) || theme == "custom" {
+		backgroundColor := ime.style.CandidateBackgroundColor
+		highlightColor := ime.style.CandidateHighlightColor
+		textColor := ime.style.CandidateTextColor
+		highlightTextColor := ime.style.CandidateHighlightTextColor
+		cfg.CandidateBackgroundColor = &backgroundColor
+		cfg.CandidateHighlightColor = &highlightColor
+		cfg.CandidateTextColor = &textColor
+		cfg.CandidateHighlightTextColor = &highlightTextColor
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(path, data, 0o644)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return
+	}
+	ime.appearanceVersion = setSharedAppearanceConfig(cfg)
+}
+
+func (ime *IME) syncAppearancePrefs() {
+	cfg, version, ok := sharedAppearanceConfig()
+	if !ok || version == ime.appearanceVersion {
+		return
+	}
+	ime.applyAppearanceConfig(cfg)
+	ime.appearanceVersion = version
 }
 
 func normalizeColor(value string) string {

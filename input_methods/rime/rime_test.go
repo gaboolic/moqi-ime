@@ -1,13 +1,26 @@
 package rime
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gaboolic/moqi-ime/imecore"
 )
+
+func writeTestAIConfig(t *testing.T, appData string, body string) {
+	t.Helper()
+	configPath := filepath.Join(appData, APP, "Rime", aiConfigFileName)
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("create AI config dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("write AI config: %v", err)
+	}
+}
 
 type testDictEntry struct {
 	code  string
@@ -275,23 +288,19 @@ func trimLastRuneForTest(s string) string {
 func newTestIME() *IME {
 	return &IME{
 		TextServiceBase: imecore.NewTextServiceBase(&imecore.Client{ID: "test-client"}),
-		style: Style{
-			DisplayTrayIcon:    true,
-			CandidateFormat:    "{0} {1}",
-			CandidatePerRow:    1,
-			CandidateCount:     9,
-			CandidateUseCursor: false,
-			FontFace:           "MingLiu",
-			FontPoint:          20,
-			InlinePreedit:      "composition",
-			SoftCursor:         false,
-		},
+		style:           defaultStyle(),
 		backend: newTestBackend(),
 	}
 }
 
+func newIsolatedTestIME(t *testing.T) *IME {
+	t.Helper()
+	resetSharedAppearanceConfigForTest()
+	return newTestIME()
+}
+
 func TestNewInitialState(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 
 	if !ime.style.DisplayTrayIcon {
@@ -303,13 +312,23 @@ func TestNewInitialState(t *testing.T) {
 	if len(backend.candidates) != 0 {
 		t.Fatalf("expected no candidates, got %v", backend.candidates)
 	}
+	if ime.style.CandidatePerRow != 3 {
+		t.Fatalf("expected horizontal layout by default, got CandidatePerRow=%d", ime.style.CandidatePerRow)
+	}
+	if ime.style.CandidateTheme != "default" || ime.style.FontPoint != 16 {
+		t.Fatalf("expected default theme defaults, got theme=%q font=%d", ime.style.CandidateTheme, ime.style.FontPoint)
+	}
+	if ime.style.CandidateBackgroundColor != "#ffffff" || ime.style.CandidateHighlightColor != "#c6ddf9" {
+		t.Fatalf("expected default theme colors, got bg=%q hl=%q",
+			ime.style.CandidateBackgroundColor, ime.style.CandidateHighlightColor)
+	}
 	if ime.keyComposing {
 		t.Fatal("expected keyComposing to be false initially")
 	}
 }
 
 func TestFilterKeyDownProcessesKeyWithoutUpdatingUI(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 
 	resp := ime.filterKeyDown(&imecore.Request{
 		SeqNum:   1,
@@ -326,7 +345,7 @@ func TestFilterKeyDownProcessesKeyWithoutUpdatingUI(t *testing.T) {
 }
 
 func TestFilterKeyDownFallsBackToKeyCodeWhenCharCodeMissing(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 
 	resp := ime.filterKeyDown(&imecore.Request{
 		SeqNum:  2,
@@ -339,7 +358,7 @@ func TestFilterKeyDownFallsBackToKeyCodeWhenCharCodeMissing(t *testing.T) {
 }
 
 func TestOnKeyDownReflectsBackendStateAfterFilter(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 
 	ime.filterKeyDown(&imecore.Request{
 		SeqNum:   1,
@@ -370,7 +389,7 @@ func TestOnKeyDownReflectsBackendStateAfterFilter(t *testing.T) {
 }
 
 func TestOnKeyDownNumberSelectsCandidate(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
 	backend.candidates = []candidateItem{{Text: "你"}, {Text: "呢"}, {Text: "泥"}}
@@ -401,7 +420,7 @@ func TestOnKeyDownNumberSelectsCandidate(t *testing.T) {
 }
 
 func TestOnKeyDownBackspaceUpdatesComposition(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
 	backend.refreshCandidates()
@@ -430,7 +449,7 @@ func TestOnKeyDownBackspaceUpdatesComposition(t *testing.T) {
 }
 
 func TestOnKeyDownEscapeClearsComposition(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
 	backend.refreshCandidates()
@@ -456,7 +475,7 @@ func TestOnKeyDownEscapeClearsComposition(t *testing.T) {
 }
 
 func TestOnKeyDownSpaceCommitsFirstCandidate(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
 	backend.refreshCandidates()
@@ -482,7 +501,7 @@ func TestOnKeyDownSpaceCommitsFirstCandidate(t *testing.T) {
 }
 
 func TestOnKeyDownPunctuationCommitsComposition(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
 	backend.refreshCandidates()
@@ -507,7 +526,7 @@ func TestOnKeyDownPunctuationCommitsComposition(t *testing.T) {
 }
 
 func TestOnKeyDownUnhandledKeyReturnsZero(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 
 	resp := ime.filterKeyDown(&imecore.Request{
 		SeqNum:   9,
@@ -521,7 +540,7 @@ func TestOnKeyDownUnhandledKeyReturnsZero(t *testing.T) {
 }
 
 func TestOnKeyDownAsciiModePassesThroughWhenIdle(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	ime.backend.SetOption("ascii_mode", true)
 
 	resp := ime.filterKeyDown(&imecore.Request{
@@ -536,7 +555,7 @@ func TestOnKeyDownAsciiModePassesThroughWhenIdle(t *testing.T) {
 }
 
 func TestControlKeyPassesThroughWhenIdle(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 
 	resp := ime.filterKeyDown(&imecore.Request{
 		SeqNum:  10,
@@ -551,7 +570,7 @@ func TestControlKeyPassesThroughWhenIdle(t *testing.T) {
 // Regression: if filterKeyDown does not handle a bare Ctrl key, onKeyDown must return
 // unhandled as well; otherwise the host still thinks the IME consumed the modifier.
 func TestOnKeyDownBareControlUnhandledWhenFilterDoesNotHandle(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	const seq = 20
 	filterResp := ime.filterKeyDown(&imecore.Request{
 		SeqNum:  seq,
@@ -570,7 +589,7 @@ func TestOnKeyDownBareControlUnhandledWhenFilterDoesNotHandle(t *testing.T) {
 }
 
 func TestOnKeyDownControlShortcutUnhandledWhenFilterDoesNotHandle(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	const seq = 22
 	filterResp := ime.filterKeyDown(&imecore.Request{
 		SeqNum:   seq,
@@ -592,7 +611,7 @@ func TestOnKeyDownControlShortcutUnhandledWhenFilterDoesNotHandle(t *testing.T) 
 
 // Regression: same contract as TestOnKeyDownBareControlUnhandledWhenFilterDoesNotHandle for key-up / Alt.
 func TestOnKeyUpBareAltUnhandledWhenFilterDoesNotHandle(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	const seq = 21
 	filterResp := ime.filterKeyUp(&imecore.Request{
 		SeqNum:  seq,
@@ -611,7 +630,7 @@ func TestOnKeyUpBareAltUnhandledWhenFilterDoesNotHandle(t *testing.T) {
 }
 
 func TestOnCommandHandlesKnownAndMissingCommand(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
 	backend.refreshCandidates()
@@ -641,7 +660,7 @@ func TestOnCommandHandlesKnownAndMissingCommand(t *testing.T) {
 func TestOnCommandDeployRedeploysBackend(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
 
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
 	backend.refreshCandidates()
@@ -663,10 +682,93 @@ func TestOnCommandDeployRedeploysBackend(t *testing.T) {
 	if !backend.session {
 		t.Fatal("expected session recreated after redeploy")
 	}
+	if resp.TrayNotification == nil {
+		t.Fatal("expected deploy success tray notification")
+	}
+	if resp.TrayNotification.Title != "Rime" || resp.TrayNotification.Message != "重新部署成功" {
+		t.Fatalf("unexpected deploy success notification: %#v", resp.TrayNotification)
+	}
+	if resp.TrayNotification.Icon != imecore.TrayNotificationIconInfo {
+		t.Fatalf("expected info tray notification, got %q", resp.TrayNotification.Icon)
+	}
+}
+
+func TestOnCommandDeployFailureReturnsErrorTrayNotification(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.redeployOK = false
+
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 21,
+		ID:     imecore.FlexibleID{Int: ID_DEPLOY, IsInt: true},
+	}, imecore.NewResponse(21, true))
+
+	if resp.ReturnValue != 0 {
+		t.Fatalf("expected deploy command to fail, got %d", resp.ReturnValue)
+	}
+	if backend.redeployCalls != 1 {
+		t.Fatalf("expected backend redeployed once, got %d", backend.redeployCalls)
+	}
+	if resp.TrayNotification == nil {
+		t.Fatal("expected deploy failure tray notification")
+	}
+	if resp.TrayNotification.Title != "Rime" || resp.TrayNotification.Message != "重新部署失败" {
+		t.Fatalf("unexpected deploy failure notification: %#v", resp.TrayNotification)
+	}
+	if resp.TrayNotification.Icon != imecore.TrayNotificationIconError {
+		t.Fatalf("expected error tray notification, got %q", resp.TrayNotification.Icon)
+	}
+}
+
+func TestOnCommandDeployReloadsAIConfig(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	writeTestAIConfig(t, appData, `{
+  "api": {
+    "base_url": "https://example.com/v1",
+    "api_key": "test-key",
+    "model": "test-model"
+  },
+  "actions": [
+    {
+      "name": "AI 改写",
+      "hotkey": "Ctrl+Alt+K",
+      "prompt": "请改写 {{composition}}"
+    }
+  ]
+}`)
+
+	ime := newIsolatedTestIME(t)
+	ime.aiEnabled = false
+	ime.aiActions = nil
+	ime.aiReviewGenerator = nil
+
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 22,
+		ID:     imecore.FlexibleID{Int: ID_DEPLOY, IsInt: true},
+	}, imecore.NewResponse(22, true))
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected deploy command to succeed, got %d", resp.ReturnValue)
+	}
+	if !ime.aiEnabled {
+		t.Fatal("expected AI to be enabled after reloading ai_config.json")
+	}
+	if ime.aiReviewGenerator == nil {
+		t.Fatal("expected AI review generator reloaded")
+	}
+	if len(ime.aiActions) != 1 {
+		t.Fatalf("expected 1 AI action after reload, got %#v", ime.aiActions)
+	}
+	if ime.aiActions[0].Name != "AI 改写" || ime.aiActions[0].Hotkey != "Ctrl+Alt+K" {
+		t.Fatalf("unexpected AI action after reload: %#v", ime.aiActions[0])
+	}
 }
 
 func TestOnCommandSyncUserData(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 
 	resp := ime.onCommand(&imecore.Request{
@@ -683,7 +785,7 @@ func TestOnCommandSyncUserData(t *testing.T) {
 }
 
 func TestOnCommandSelectSchema(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 
 	resp := ime.onCommand(&imecore.Request{
@@ -703,7 +805,7 @@ func TestOnCommandSelectSchema(t *testing.T) {
 }
 
 func TestOnMenuReturnsSettingsMenu(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 
 	resp := ime.onMenu(&imecore.Request{
 		SeqNum: 16,
@@ -720,7 +822,7 @@ func TestOnMenuReturnsSettingsMenu(t *testing.T) {
 }
 
 func TestBuildMenuIncludesSchemaSubmenu(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 
 	items := ime.buildMenu()
 	var schemaMenu map[string]interface{}
@@ -751,7 +853,7 @@ func TestBuildMenuIncludesSchemaSubmenu(t *testing.T) {
 }
 
 func TestApplyAppearanceCommandChangesCandidateLayout(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	ime.style.CandidatePerRow = 1
 
 	if !ime.applyAppearanceCommand(ID_APPEARANCE_LAYOUT_HORIZONTAL) {
@@ -784,7 +886,7 @@ func TestApplyAppearanceCommandChangesCandidateLayout(t *testing.T) {
 }
 
 func TestEffectiveCandidatePerRowIsCappedByCandidateCount(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	ime.style.CandidatePerRow = 9
 	ime.style.CandidateCount = 3
 
@@ -803,7 +905,7 @@ func TestEffectiveCandidatePerRowIsCappedByCandidateCount(t *testing.T) {
 }
 
 func TestOnCommandAppearanceRefreshesCurrentCandidates(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
 	backend.refreshCandidates()
@@ -856,7 +958,7 @@ func TestOnCommandCandidateCountWritesConfigAndDeploysConfigFile(t *testing.T) {
 		joinMaintenanceThreadFunc = oldJoinMaintenanceThreadFunc
 	}()
 
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
 	backend.candidates = []candidateItem{
@@ -923,7 +1025,7 @@ func TestOnCommandCandidateCountUsesRuntimePageSizeWhenAvailable(t *testing.T) {
 		joinMaintenanceThreadFunc = oldJoinMaintenanceThreadFunc
 	}()
 
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.pageSizeOK = true
 	backend.composition = "ni"
@@ -952,7 +1054,7 @@ func TestOnCommandCandidateCountUsesRuntimePageSizeWhenAvailable(t *testing.T) {
 }
 
 func TestBuildMenuIncludesCandidateLayoutSubmenus(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	ime.style.CandidatePerRow = 5
 
 	items := ime.buildMenu()
@@ -1009,7 +1111,7 @@ func TestBuildMenuIncludesCandidateLayoutSubmenus(t *testing.T) {
 }
 
 func TestBuildMenuCapsPerRowHighlightByCandidateCount(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	ime.style.CandidatePerRow = 9
 	ime.style.CandidateCount = 3
 
@@ -1057,7 +1159,7 @@ func TestBuildMenuCapsPerRowHighlightByCandidateCount(t *testing.T) {
 }
 
 func TestBuildMenuDisablesPerRowSubmenuInVerticalLayout(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	ime.style.CandidatePerRow = 1
 
 	items := ime.buildMenu()
@@ -1105,7 +1207,7 @@ func TestBuildMenuDisablesPerRowSubmenuInVerticalLayout(t *testing.T) {
 }
 
 func TestBuildMenuIncludesCandidateCountSubmenu(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	ime.style.CandidateCount = 7
 
 	items := ime.buildMenu()
@@ -1148,7 +1250,7 @@ func TestBuildMenuIncludesCandidateCountSubmenu(t *testing.T) {
 }
 
 func TestFillResponseFromBackendStateAppliesCandidateCount(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	ime.style.CandidateCount = 5
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
@@ -1173,7 +1275,7 @@ func TestFillResponseFromBackendStateAppliesCandidateCount(t *testing.T) {
 }
 
 func TestHandleRequestCompositionTerminatedResetsState(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
 	backend.refreshCandidates()
@@ -1192,7 +1294,7 @@ func TestHandleRequestCompositionTerminatedResetsState(t *testing.T) {
 }
 
 func TestHandleRequestOnDeactivateReturnsHandled(t *testing.T) {
-	ime := newTestIME()
+	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
 	backend.refreshCandidates()
@@ -1207,5 +1309,200 @@ func TestHandleRequestOnDeactivateReturnsHandled(t *testing.T) {
 	}
 	if backend.composition != "" || backend.candidates != nil {
 		t.Fatal("expected deactivate to clear composition state")
+	}
+}
+
+func TestHandleRequestSyncsAppearanceAcrossInstances(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	resetSharedAppearanceConfigForTest()
+
+	first := newTestIME()
+	second := newTestIME()
+
+	if !first.applyAppearanceCommand(ID_APPEARANCE_THEME_PURPLE) {
+		t.Fatal("expected theme command handled")
+	}
+
+	resp := second.HandleRequest(&imecore.Request{
+		SeqNum: 15,
+		Method: "onMenu",
+		ID:     imecore.FlexibleID{String: "settings"},
+	})
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected onMenu handled, got %d", resp.ReturnValue)
+	}
+	if second.style.CandidateTheme != "purple" {
+		t.Fatalf("expected second instance theme synced to purple, got %q", second.style.CandidateTheme)
+	}
+	if second.style.CandidateBackgroundColor != "#f3e8ff" {
+		t.Fatalf("expected synced background color, got %q", second.style.CandidateBackgroundColor)
+	}
+}
+
+func TestLoadAppearancePrefsKeepsPresetThemeAfterPersist(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	resetSharedAppearanceConfigForTest()
+
+	first := newTestIME()
+	if !first.applyAppearanceCommand(ID_APPEARANCE_THEME_PURPLE) {
+		t.Fatal("expected theme command handled")
+	}
+
+	resetSharedAppearanceConfigForTest()
+	second := newTestIME()
+	second.loadAppearancePrefs()
+
+	if second.style.CandidateTheme != "purple" {
+		t.Fatalf("expected persisted preset theme purple, got %q", second.style.CandidateTheme)
+	}
+	if second.style.CandidateBackgroundColor != "#f3e8ff" {
+		t.Fatalf("expected persisted preset background color, got %q", second.style.CandidateBackgroundColor)
+	}
+}
+
+func TestAppearanceSettingsPersistToDisk(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetSharedAppearanceConfigForTest()
+
+	ime := newTestIME()
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_FONT_22) {
+		t.Fatal("expected font size command handled")
+	}
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_LAYOUT_HORIZONTAL) {
+		t.Fatal("expected layout command handled")
+	}
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_PER_ROW_7) {
+		t.Fatal("expected per-row command handled")
+	}
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_CAND_COUNT_5) {
+		t.Fatal("expected candidate count command handled")
+	}
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_BG_BLUE) {
+		t.Fatal("expected background color command handled")
+	}
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_HL_GREEN) {
+		t.Fatal("expected highlight color command handled")
+	}
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_TEXT_BLUE) {
+		t.Fatal("expected text color command handled")
+	}
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_HLTEXT_WHITE) {
+		t.Fatal("expected highlight text color command handled")
+	}
+
+	configPath := filepath.Join(appData, APP, "Rime", appearanceConfigFileName)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("expected appearance config written to disk: %v", err)
+	}
+
+	var persisted map[string]any
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatalf("expected valid appearance config json: %v", err)
+	}
+	if got := persisted["font_point"]; got != float64(22) {
+		t.Fatalf("expected persisted font_point 22, got %#v", got)
+	}
+	if got := persisted["candidate_per_row"]; got != float64(7) {
+		t.Fatalf("expected persisted candidate_per_row 7, got %#v", got)
+	}
+	if got := persisted["candidate_count"]; got != float64(5) {
+		t.Fatalf("expected persisted candidate_count 5, got %#v", got)
+	}
+	if got := persisted["candidate_background_color"]; got != "#f3f8ff" {
+		t.Fatalf("expected persisted background color, got %#v", got)
+	}
+	if got := persisted["candidate_highlight_color"]; got != "#d9f2e6" {
+		t.Fatalf("expected persisted highlight color, got %#v", got)
+	}
+	if got := persisted["candidate_text_color"]; got != "#1d4ed8" {
+		t.Fatalf("expected persisted text color, got %#v", got)
+	}
+	if got := persisted["candidate_highlight_text_color"]; got != "#ffffff" {
+		t.Fatalf("expected persisted highlight text color, got %#v", got)
+	}
+
+	resetSharedAppearanceConfigForTest()
+	reloaded := newTestIME()
+	reloaded.loadAppearancePrefs()
+
+	if reloaded.style.FontPoint != 22 {
+		t.Fatalf("expected reloaded font size 22, got %d", reloaded.style.FontPoint)
+	}
+	if reloaded.style.CandidatePerRow != 7 {
+		t.Fatalf("expected reloaded per-row 7, got %d", reloaded.style.CandidatePerRow)
+	}
+	if reloaded.style.CandidateCount != 5 {
+		t.Fatalf("expected reloaded candidate count 5, got %d", reloaded.style.CandidateCount)
+	}
+	if reloaded.style.CandidateBackgroundColor != "#f3f8ff" {
+		t.Fatalf("expected reloaded background color, got %q", reloaded.style.CandidateBackgroundColor)
+	}
+	if reloaded.style.CandidateHighlightColor != "#d9f2e6" {
+		t.Fatalf("expected reloaded highlight color, got %q", reloaded.style.CandidateHighlightColor)
+	}
+	if reloaded.style.CandidateTextColor != "#1d4ed8" {
+		t.Fatalf("expected reloaded text color, got %q", reloaded.style.CandidateTextColor)
+	}
+	if reloaded.style.CandidateHighlightTextColor != "#ffffff" {
+		t.Fatalf("expected reloaded highlight text color, got %q", reloaded.style.CandidateHighlightTextColor)
+	}
+	if reloaded.style.CandidateTheme != "custom" {
+		t.Fatalf("expected reloaded theme custom for custom colors, got %q", reloaded.style.CandidateTheme)
+	}
+}
+
+func TestNativeBackendRedeployRunsAsync(t *testing.T) {
+	resetNativeRuntimeStateForTest()
+	oldRedeployFunc := rimeRedeployFunc
+	oldInitOK := rimeInitOK
+	rimeInitOK = true
+	done := make(chan struct{})
+	rimeRedeployFunc = func(datadir, userdir, appname, appver string) bool {
+		time.Sleep(120 * time.Millisecond)
+		close(done)
+		return true
+	}
+	defer func() {
+		rimeRedeployFunc = oldRedeployFunc
+		rimeInitOK = oldInitOK
+		resetNativeRuntimeStateForTest()
+	}()
+
+	backend := &nativeBackend{}
+	start := time.Now()
+	if !backend.Redeploy("shared", "user") {
+		t.Fatal("expected redeploy to start")
+	}
+	if elapsed := time.Since(start); elapsed > 60*time.Millisecond {
+		t.Fatalf("expected async redeploy to return quickly, took %s", elapsed)
+	}
+	if backend.Available() {
+		t.Fatal("expected backend unavailable while redeploy is in progress")
+	}
+	if notification := backend.ConsumeNotification(); notification != nil {
+		t.Fatalf("expected no notification before async redeploy completes, got %#v", notification)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for async redeploy to finish")
+	}
+
+	if !backend.Available() {
+		t.Fatal("expected backend available after redeploy completes")
+	}
+	notification := backend.ConsumeNotification()
+	if notification == nil {
+		t.Fatal("expected completion notification after async redeploy")
+	}
+	if notification.Message != "重新部署成功" {
+		t.Fatalf("unexpected completion notification: %#v", notification)
+	}
+	if backend.ConsumeNotification() != nil {
+		t.Fatal("expected completion notification to be consumed once")
 	}
 }
