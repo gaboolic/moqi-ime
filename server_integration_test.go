@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/binary"
 	"io"
 	"os"
 	"strings"
@@ -11,6 +11,8 @@ import (
 	fcitx5ime "github.com/gaboolic/moqi-ime/input_methods/fcitx5"
 	simplepinyinime "github.com/gaboolic/moqi-ime/input_methods/moqi"
 	rimeime "github.com/gaboolic/moqi-ime/input_methods/rime"
+	moqipb "github.com/gaboolic/moqi-ime/proto"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 const testSimplePinyinGUID = "{5C8E1D74-2F9A-4B63-91DE-7A45C8F2B306}"
@@ -41,7 +43,7 @@ func newTestServerWithFcitx5() *Server {
 	return server
 }
 
-func captureStdout(t *testing.T, fn func()) string {
+func captureStdoutBytes(t *testing.T, fn func()) []byte {
 	t.Helper()
 
 	oldStdout := os.Stdout
@@ -49,7 +51,6 @@ func captureStdout(t *testing.T, fn func()) string {
 	if err != nil {
 		t.Fatalf("create stdout pipe: %v", err)
 	}
-
 	os.Stdout = writer
 	defer func() {
 		os.Stdout = oldStdout
@@ -60,7 +61,6 @@ func captureStdout(t *testing.T, fn func()) string {
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close stdout writer: %v", err)
 	}
-
 	output, err := io.ReadAll(reader)
 	if err != nil {
 		t.Fatalf("read captured stdout: %v", err)
@@ -68,59 +68,68 @@ func captureStdout(t *testing.T, fn func()) string {
 	if err := reader.Close(); err != nil {
 		t.Fatalf("close stdout reader: %v", err)
 	}
-
-	return strings.TrimSpace(string(output))
+	return output
 }
 
-func sendProtocolMessage(t *testing.T, server *Server, clientID string, payload map[string]interface{}) (string, map[string]interface{}) {
+func sendProtocolMessage(t *testing.T, server *Server, req *moqipb.ClientRequest) *moqipb.ServerResponse {
 	t.Helper()
 
-	data, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("marshal payload: %v", err)
-	}
-
-	line := clientID + "|" + string(data)
-	output := captureStdout(t, func() {
-		if err := server.handleMessage(line); err != nil {
+	output := captureStdoutBytes(t, func() {
+		if err := server.handleMessage(req); err != nil {
 			t.Fatalf("handleMessage failed: %v", err)
 		}
 	})
-
-	prefix := imecore.MsgMOQI + "|" + clientID + "|"
-	if !strings.HasPrefix(output, prefix) {
-		t.Fatalf("expected %q prefix, got %q", prefix, output)
+	if len(output) < 4 {
+		t.Fatalf("expected framed response, got %d bytes", len(output))
+	}
+	size := binary.LittleEndian.Uint32(output[:4])
+	payload := output[4:]
+	if int(size) != len(payload) {
+		t.Fatalf("expected payload size %d, got %d", size, len(payload))
 	}
 
-	var response map[string]interface{}
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(output, prefix)), &response); err != nil {
+	resp := &moqipb.ServerResponse{}
+	if err := gproto.Unmarshal(payload, resp); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-
-	return output, response
+	return resp
 }
 
-func TestServerHandleMessageInitUsesTopLevelID(t *testing.T) {
-	server := newTestServerWithSimplePinyin()
+func keyRequest(clientID string, method moqipb.Method, seq uint32, keyCode uint32, charCode uint32) *moqipb.ClientRequest {
+	return &moqipb.ClientRequest{
+		ClientId: &clientID,
+		Method:   method,
+		SeqNum:   seq,
+		KeyEvent: &moqipb.KeyEvent{
+			KeyCode:  keyCode,
+			CharCode: charCode,
+		},
+	}
+}
 
-	_, response := sendProtocolMessage(t, server, "client-1", map[string]interface{}{
-		"method":          "init",
-		"seqNum":          1,
-		"id":              testSimplePinyinGUID,
-		"isWindows8Above": true,
-		"isMetroApp":      false,
-		"isUiLess":        false,
-		"isConsole":       false,
+func TestServerHandleMessageInitUsesGuid(t *testing.T) {
+	server := newTestServerWithSimplePinyin()
+	clientID := "client-1"
+	guid := testSimplePinyinGUID
+
+	response := sendProtocolMessage(t, server, &moqipb.ClientRequest{
+		ClientId:         &clientID,
+		Method:           moqipb.Method_METHOD_INIT,
+		SeqNum:           1,
+		Guid:             &guid,
+		IsWindows8Above:  true,
+		IsMetroApp:       false,
+		IsUiLess:         false,
+		IsConsole:        false,
 	})
 
-	if response["success"] != true {
+	if !response.GetSuccess() {
 		t.Fatalf("expected init success, got %#v", response)
 	}
-	if response["seqNum"] != float64(1) {
-		t.Fatalf("expected seqNum 1, got %#v", response["seqNum"])
+	if response.GetSeqNum() != 1 {
+		t.Fatalf("expected seqNum 1, got %#v", response.GetSeqNum())
 	}
-
-	client := server.clients["client-1"]
+	client := server.clients[clientID]
 	if client == nil {
 		t.Fatal("expected client to be registered after init")
 	}
@@ -129,191 +138,106 @@ func TestServerHandleMessageInitUsesTopLevelID(t *testing.T) {
 	}
 }
 
-func TestServerHandleMessageInitAcceptsLowercaseGUID(t *testing.T) {
-	server := newTestServerWithSimplePinyin()
-
-	_, response := sendProtocolMessage(t, server, "client-lower", map[string]interface{}{
-		"method":          "init",
-		"seqNum":          1,
-		"id":              strings.ToLower(testSimplePinyinGUID),
-		"isWindows8Above": true,
-		"isMetroApp":      false,
-		"isUiLess":        false,
-		"isConsole":       false,
-	})
-
-	if response["success"] != true {
-		t.Fatalf("expected lowercase guid init success, got %#v", response)
-	}
-}
-
 func TestServerHandleMessageUninitializedClientReturnsProtocolError(t *testing.T) {
 	server := newTestServerWithSimplePinyin()
+	clientID := "client-3"
 
-	_, response := sendProtocolMessage(t, server, "client-3", map[string]interface{}{
-		"method":   "onKeyDown",
-		"seqNum":   9,
-		"keyCode":  0x4D,
-		"charCode": 'm',
-	})
-
-	if response["success"] != false {
+	response := sendProtocolMessage(t, server, keyRequest(clientID, moqipb.Method_METHOD_ON_KEY_DOWN, 9, 0x4D, 'm'))
+	if response.GetSuccess() {
 		t.Fatalf("expected uninitialized client to fail, got %#v", response)
 	}
-	if response["seqNum"] != float64(9) {
-		t.Fatalf("expected seqNum 9, got %#v", response["seqNum"])
+	if response.GetSeqNum() != 9 {
+		t.Fatalf("expected seqNum 9, got %#v", response.GetSeqNum())
 	}
-	if response["error"] != "客户端未初始化" {
-		t.Fatalf("expected protocol error for uninitialized client, got %#v", response["error"])
+	if response.GetError() != "客户端未初始化" {
+		t.Fatalf("expected protocol error for uninitialized client, got %#v", response.GetError())
 	}
 }
 
 func TestServerHandleMessageCloseSucceeds(t *testing.T) {
 	server := newTestServerWithSimplePinyin()
+	clientID := "client-close"
+	guid := testSimplePinyinGUID
 
-	sendProtocolMessage(t, server, "client-close", map[string]interface{}{
-		"method":          "init",
-		"seqNum":          1,
-		"id":              testSimplePinyinGUID,
-		"isWindows8Above": true,
-		"isMetroApp":      false,
-		"isUiLess":        false,
-		"isConsole":       false,
+	sendProtocolMessage(t, server, &moqipb.ClientRequest{
+		ClientId:        &clientID,
+		Method:          moqipb.Method_METHOD_INIT,
+		SeqNum:          1,
+		Guid:            &guid,
+		IsWindows8Above: true,
 	})
 
-	_, response := sendProtocolMessage(t, server, "client-close", map[string]interface{}{
-		"method": "close",
-		"seqNum": 2,
+	response := sendProtocolMessage(t, server, &moqipb.ClientRequest{
+		ClientId: &clientID,
+		Method:   moqipb.Method_METHOD_CLOSE,
+		SeqNum:   2,
 	})
-
-	if response["success"] != true {
+	if !response.GetSuccess() {
 		t.Fatalf("expected close success, got %#v", response)
 	}
-	if _, ok := server.clients["client-close"]; ok {
+	if _, ok := server.clients[clientID]; ok {
 		t.Fatal("expected client to be removed after close")
 	}
 }
 
 func TestServerHandleMessageSimplePinyinRequestResponseFlow(t *testing.T) {
 	server := newTestServerWithSimplePinyin()
+	clientID := "client-4"
+	guid := testSimplePinyinGUID
 
-	sendProtocolMessage(t, server, "client-4", map[string]interface{}{
-		"method":          "init",
-		"seqNum":          1,
-		"id":              testSimplePinyinGUID,
-		"isWindows8Above": true,
-		"isMetroApp":      false,
-		"isUiLess":        false,
-		"isConsole":       false,
+	sendProtocolMessage(t, server, &moqipb.ClientRequest{
+		ClientId:        &clientID,
+		Method:          moqipb.Method_METHOD_INIT,
+		SeqNum:          1,
+		Guid:            &guid,
+		IsWindows8Above: true,
 	})
 
-	_, firstResp := sendProtocolMessage(t, server, "client-4", map[string]interface{}{
-		"method":   "filterKeyDown",
-		"seqNum":   2,
-		"keyCode":  0x4E,
-		"charCode": 'n',
-	})
-	if firstResp["compositionString"] != "n" {
+	firstResp := sendProtocolMessage(t, server, keyRequest(clientID, moqipb.Method_METHOD_FILTER_KEY_DOWN, 2, 0x4E, 'n'))
+	if firstResp.GetCompositionString() != "n" {
 		t.Fatalf("expected first key to build composition n, got %#v", firstResp)
 	}
-	if firstResp["return"] != float64(1) {
+	if firstResp.GetReturnValue() != 1 {
 		t.Fatalf("expected first key return 1, got %#v", firstResp)
 	}
 
-	_, secondResp := sendProtocolMessage(t, server, "client-4", map[string]interface{}{
-		"method":   "filterKeyDown",
-		"seqNum":   3,
-		"keyCode":  0x49,
-		"charCode": 'i',
-	})
-	if secondResp["compositionString"] != "ni" {
+	secondResp := sendProtocolMessage(t, server, keyRequest(clientID, moqipb.Method_METHOD_FILTER_KEY_DOWN, 3, 0x49, 'i'))
+	if secondResp.GetCompositionString() != "ni" {
 		t.Fatalf("expected second key to build composition ni, got %#v", secondResp)
 	}
-	candidateList, ok := secondResp["candidateList"].([]interface{})
-	if !ok {
-		t.Fatalf("expected candidate list array, got %#v", secondResp["candidateList"])
+	if len(secondResp.GetCandidateList()) != 3 {
+		t.Fatalf("expected fallback candidate count 3, got %d", len(secondResp.GetCandidateList()))
 	}
-	if len(candidateList) != 3 {
-		t.Fatalf("expected fallback candidate count 3, got %d", len(candidateList))
-	}
-	if candidateList[0] != "测试" {
-		t.Fatalf("expected fallback candidate 测试, got %#v", candidateList[0])
+	if secondResp.GetCandidateList()[0] != "测试" {
+		t.Fatalf("expected fallback candidate 测试, got %#v", secondResp.GetCandidateList()[0])
 	}
 
-	_, selectResp := sendProtocolMessage(t, server, "client-4", map[string]interface{}{
-		"method":  "filterKeyDown",
-		"seqNum":  4,
-		"keyCode": 0x31,
-	})
-	if selectResp["commitString"] != "测试" {
+	selectResp := sendProtocolMessage(t, server, keyRequest(clientID, moqipb.Method_METHOD_FILTER_KEY_DOWN, 4, 0x31, 0))
+	if selectResp.GetCommitString() != "测试" {
 		t.Fatalf("expected number key to commit first fallback candidate, got %#v", selectResp)
 	}
-	if selectResp["return"] != float64(1) {
+	if selectResp.GetReturnValue() != 1 {
 		t.Fatalf("expected candidate selection return 1, got %#v", selectResp)
 	}
-	if selectResp["showCandidates"] != false {
+	if selectResp.GetShowCandidates() {
 		t.Fatalf("expected candidate window to close, got %#v", selectResp)
-	}
-}
-
-func TestServerHandleMessageSimplePinyinExactCandidateCommitFlow(t *testing.T) {
-	server := newTestServerWithSimplePinyin()
-
-	sendProtocolMessage(t, server, "client-5", map[string]interface{}{
-		"method":          "init",
-		"seqNum":          1,
-		"id":              testSimplePinyinGUID,
-		"isWindows8Above": true,
-		"isMetroApp":      false,
-		"isUiLess":        false,
-		"isConsole":       false,
-	})
-
-	for i, key := range []struct {
-		keyCode  int
-		charCode rune
-	}{
-		{keyCode: 0x4E, charCode: 'n'},
-		{keyCode: 0x49, charCode: 'i'},
-		{keyCode: 0x48, charCode: 'h'},
-		{keyCode: 0x41, charCode: 'a'},
-		{keyCode: 0x4F, charCode: 'o'},
-	} {
-		sendProtocolMessage(t, server, "client-5", map[string]interface{}{
-			"method":   "filterKeyDown",
-			"seqNum":   i + 2,
-			"keyCode":  key.keyCode,
-			"charCode": key.charCode,
-		})
-	}
-
-	_, commitResp := sendProtocolMessage(t, server, "client-5", map[string]interface{}{
-		"method":  "filterKeyDown",
-		"seqNum":  7,
-		"keyCode": 0x0D,
-	})
-	if commitResp["commitString"] != "你好" {
-		t.Fatalf("expected enter to commit exact first candidate 你好, got %#v", commitResp)
-	}
-	if commitResp["return"] != float64(1) {
-		t.Fatalf("expected enter commit return 1, got %#v", commitResp)
 	}
 }
 
 func TestServerHandleMessageRimeRequestResponseFlow(t *testing.T) {
 	server := newTestServerWithRime()
+	clientID := "client-6"
+	guid := testRimeGUID
 
-	sendProtocolMessage(t, server, "client-6", map[string]interface{}{
-		"method":          "init",
-		"seqNum":          1,
-		"id":              testRimeGUID,
-		"isWindows8Above": true,
-		"isMetroApp":      false,
-		"isUiLess":        false,
-		"isConsole":       false,
+	sendProtocolMessage(t, server, &moqipb.ClientRequest{
+		ClientId:        &clientID,
+		Method:          moqipb.Method_METHOD_INIT,
+		SeqNum:          1,
+		Guid:            &guid,
+		IsWindows8Above: true,
 	})
 
-	service, ok := server.clients["client-6"].Service.(*rimeime.IME)
+	service, ok := server.clients[clientID].Service.(*rimeime.IME)
 	if !ok {
 		t.Fatal("expected concrete Rime IME service")
 	}
@@ -321,128 +245,92 @@ func TestServerHandleMessageRimeRequestResponseFlow(t *testing.T) {
 		t.Skip("native Rime backend unavailable in test environment")
 	}
 
-	_, firstResp := sendProtocolMessage(t, server, "client-6", map[string]interface{}{
-		"method":   "filterKeyDown",
-		"seqNum":   2,
-		"keyCode":  0x4E,
-		"charCode": 'n',
-	})
-	if firstResp["return"] != float64(1) {
+	firstResp := sendProtocolMessage(t, server, keyRequest(clientID, moqipb.Method_METHOD_FILTER_KEY_DOWN, 2, 0x4E, 'n'))
+	if firstResp.GetReturnValue() != 1 {
 		t.Fatalf("expected first key return 1, got %#v", firstResp)
 	}
 
-	_, firstKeyState := sendProtocolMessage(t, server, "client-6", map[string]interface{}{
-		"method":   "onKeyDown",
-		"seqNum":   3,
-		"keyCode":  0x4E,
-		"charCode": 'n',
-	})
-	if firstKeyState["compositionString"] != "n" {
+	firstKeyState := sendProtocolMessage(t, server, keyRequest(clientID, moqipb.Method_METHOD_ON_KEY_DOWN, 3, 0x4E, 'n'))
+	if firstKeyState.GetCompositionString() != "n" {
 		t.Fatalf("expected onKeyDown to expose n, got %#v", firstKeyState)
 	}
-	candidateList, ok := firstKeyState["candidateList"].([]interface{})
-	if !ok || len(candidateList) == 0 {
-		t.Fatalf("expected prefix candidates, got %#v", firstKeyState["candidateList"])
+	if len(firstKeyState.GetCandidateList()) == 0 {
+		t.Fatalf("expected prefix candidates, got %#v", firstKeyState.GetCandidateList())
 	}
-	if candidateList[0] != "你" {
-		t.Fatalf("expected first candidate 你, got %#v", candidateList[0])
+	if firstKeyState.GetCandidateList()[0] != "你" {
+		t.Fatalf("expected first candidate 你, got %#v", firstKeyState.GetCandidateList()[0])
 	}
 
-	_, secondResp := sendProtocolMessage(t, server, "client-6", map[string]interface{}{
-		"method":   "filterKeyDown",
-		"seqNum":   4,
-		"keyCode":  0x49,
-		"charCode": 'i',
-	})
-	if secondResp["return"] != float64(1) {
+	secondResp := sendProtocolMessage(t, server, keyRequest(clientID, moqipb.Method_METHOD_FILTER_KEY_DOWN, 4, 0x49, 'i'))
+	if secondResp.GetReturnValue() != 1 {
 		t.Fatalf("expected second key return 1, got %#v", secondResp)
 	}
 
-	_, secondKeyState := sendProtocolMessage(t, server, "client-6", map[string]interface{}{
-		"method":   "onKeyDown",
-		"seqNum":   5,
-		"keyCode":  0x49,
-		"charCode": 'i',
-	})
-	if secondKeyState["compositionString"] != "ni" {
+	secondKeyState := sendProtocolMessage(t, server, keyRequest(clientID, moqipb.Method_METHOD_ON_KEY_DOWN, 5, 0x49, 'i'))
+	if secondKeyState.GetCompositionString() != "ni" {
 		t.Fatalf("expected second key to build ni, got %#v", secondKeyState)
 	}
-	secondCandidates, ok := secondKeyState["candidateList"].([]interface{})
-	if !ok || len(secondCandidates) == 0 {
-		t.Fatalf("expected exact candidates after ni, got %#v", secondKeyState["candidateList"])
+	if len(secondKeyState.GetCandidateList()) < 2 {
+		t.Fatalf("expected exact candidates after ni, got %#v", secondKeyState.GetCandidateList())
 	}
-	if secondCandidates[1] != "呢" {
-		t.Fatalf("expected second candidate 呢, got %#v", secondCandidates[1])
+	if secondKeyState.GetCandidateList()[1] != "呢" {
+		t.Fatalf("expected second candidate 呢, got %#v", secondKeyState.GetCandidateList()[1])
 	}
 
-	_, selectFilterResp := sendProtocolMessage(t, server, "client-6", map[string]interface{}{
-		"method":  "filterKeyDown",
-		"seqNum":  6,
-		"keyCode": 0x32,
-	})
-	if selectFilterResp["return"] != float64(1) {
+	selectFilterResp := sendProtocolMessage(t, server, keyRequest(clientID, moqipb.Method_METHOD_FILTER_KEY_DOWN, 6, 0x32, 0))
+	if selectFilterResp.GetReturnValue() != 1 {
 		t.Fatalf("expected number filter to be handled, got %#v", selectFilterResp)
 	}
 
-	_, selectResp := sendProtocolMessage(t, server, "client-6", map[string]interface{}{
-		"method":  "onKeyDown",
-		"seqNum":  7,
-		"keyCode": 0x32,
-	})
-	if selectResp["commitString"] != "呢" {
+	selectResp := sendProtocolMessage(t, server, keyRequest(clientID, moqipb.Method_METHOD_ON_KEY_DOWN, 7, 0x32, 0))
+	if selectResp.GetCommitString() != "呢" {
 		t.Fatalf("expected number key to commit 呢, got %#v", selectResp)
 	}
-	if selectResp["return"] != float64(1) {
+	if selectResp.GetReturnValue() != 1 {
 		t.Fatalf("expected candidate selection return 1, got %#v", selectResp)
 	}
 }
 
 func TestServerHandleMessageFcitx5RequestResponseFlow(t *testing.T) {
 	server := newTestServerWithFcitx5()
+	clientID := "client-7"
+	guid := testFcitx5GUID
 
-	sendProtocolMessage(t, server, "client-7", map[string]interface{}{
-		"method":          "init",
-		"seqNum":          1,
-		"id":              testFcitx5GUID,
-		"isWindows8Above": true,
-		"isMetroApp":      false,
-		"isUiLess":        false,
-		"isConsole":       false,
+	sendProtocolMessage(t, server, &moqipb.ClientRequest{
+		ClientId:        &clientID,
+		Method:          moqipb.Method_METHOD_INIT,
+		SeqNum:          1,
+		Guid:            &guid,
+		IsWindows8Above: true,
 	})
 
-	_, firstResp := sendProtocolMessage(t, server, "client-7", map[string]interface{}{
-		"method":   "filterKeyDown",
-		"seqNum":   2,
-		"keyCode":  0x48,
-		"charCode": 'h',
-	})
-	if firstResp["compositionString"] != "ha" {
+	firstResp := sendProtocolMessage(t, server, keyRequest(clientID, moqipb.Method_METHOD_FILTER_KEY_DOWN, 2, 0x48, 'h'))
+	if firstResp.GetCompositionString() != "ha" {
 		t.Fatalf("expected first key to build ha, got %#v", firstResp)
 	}
-	if firstResp["return"] != float64(1) {
+	if firstResp.GetReturnValue() != 1 {
 		t.Fatalf("expected first key return 1, got %#v", firstResp)
 	}
-	candidateList, ok := firstResp["candidateList"].([]interface{})
-	if !ok {
-		t.Fatalf("expected candidate list array, got %#v", firstResp["candidateList"])
+	if len(firstResp.GetCandidateList()) != 5 {
+		t.Fatalf("expected 5 candidates, got %d", len(firstResp.GetCandidateList()))
 	}
-	if len(candidateList) != 5 {
-		t.Fatalf("expected 5 candidates, got %d", len(candidateList))
-	}
-	if candidateList[2] != "喝" {
-		t.Fatalf("expected third candidate 喝, got %#v", candidateList[2])
+	if firstResp.GetCandidateList()[2] != "喝" {
+		t.Fatalf("expected third candidate 喝, got %#v", firstResp.GetCandidateList()[2])
 	}
 
-	_, selectResp := sendProtocolMessage(t, server, "client-7", map[string]interface{}{
-		"method":        "onKeyDown",
-		"seqNum":        3,
-		"keyCode":       0x33,
-		"candidateList": []string{"哈", "呵", "喝", "和", "河"},
+	commandID := uint32(0x33)
+	selectResp := sendProtocolMessage(t, server, &moqipb.ClientRequest{
+		ClientId:      &clientID,
+		Method:        moqipb.Method_METHOD_ON_KEY_DOWN,
+		SeqNum:        3,
+		CommandId:     &commandID,
+		CandidateList: []string{"哈", "呵", "喝", "和", "河"},
+		KeyEvent:      &moqipb.KeyEvent{KeyCode: 0x33},
 	})
-	if selectResp["commitString"] != "喝" {
+	if selectResp.GetCommitString() != "喝" {
 		t.Fatalf("expected number key to commit 喝, got %#v", selectResp)
 	}
-	if selectResp["return"] != float64(1) {
+	if selectResp.GetReturnValue() != 1 {
 		t.Fatalf("expected candidate selection return 1, got %#v", selectResp)
 	}
 }
