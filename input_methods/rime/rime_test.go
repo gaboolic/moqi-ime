@@ -315,7 +315,7 @@ func TestNewInitialState(t *testing.T) {
 	if ime.style.CandidatePerRow != 3 {
 		t.Fatalf("expected horizontal layout by default, got CandidatePerRow=%d", ime.style.CandidatePerRow)
 	}
-	if ime.style.CandidateTheme != "default" || ime.style.FontPoint != 16 {
+	if ime.style.CandidateTheme != "default" || ime.style.FontPoint != 20 {
 		t.Fatalf("expected default theme defaults, got theme=%q font=%d", ime.style.CandidateTheme, ime.style.FontPoint)
 	}
 	if ime.style.CandidateBackgroundColor != "#ffffff" || ime.style.CandidateHighlightColor != "#c6ddf9" {

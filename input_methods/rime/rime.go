@@ -172,7 +172,7 @@ func defaultStyle() Style {
 		CandidateTextColor:          "#000000",
 		CandidateHighlightTextColor: "#000000",
 		FontFace:                    "Segoe UI",
-		FontPoint:                   16,
+		FontPoint:                   20,
 		InlinePreedit:               "composition",
 		SoftCursor:                  false,
 	}
