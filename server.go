@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gaboolic/moqi-ime/imecore"
+	moqipb "github.com/gaboolic/moqi-ime/proto"
 
 	// 导入输入法包
 	"github.com/gaboolic/moqi-ime/input_methods/fcitx5"
@@ -75,11 +76,10 @@ func logRequestSummary(clientID string, req *imecore.Request) {
 	)
 }
 
-func logResponseSummary(clientID string, resp map[string]interface{}) {
-	raw, err := json.Marshal(resp)
+func logResponseSummary(clientID string, resp *imecore.Response) {
+	_, err := json.Marshal(resp)
 	if err != nil {
 		log.Printf("发送响应 client=%s marshal_error=%v", clientID, err)
-		log.Printf("发送响应 client=%s payload=%s", clientID, string(raw))
 		return
 	}
 	//log.Printf("发送响应 client=%s payload=%s", clientID, string(raw))
@@ -109,7 +109,7 @@ func (s *Server) Run() error {
 	log.Println("Moqi Go 后端服务器已启动")
 
 	for s.running {
-		line, err := s.reader.ReadString('\n')
+		payload, err := readFrame(s.reader)
 		if err != nil {
 			if err.Error() == "EOF" {
 				log.Println("收到 EOF，服务器停止")
@@ -118,54 +118,45 @@ func (s *Server) Run() error {
 			return fmt.Errorf("读取错误: %w", err)
 		}
 
-		line = strings.TrimSpace(line)
-		if line == "" {
+		reqMsg, err := decodeClientRequest(payload)
+		if err != nil {
+			log.Printf("处理消息错误: %v", err)
+			continue
+		}
+		clientID := reqMsg.GetClientId()
+		if clientID == "" {
+			log.Printf("处理消息错误: 缺少 client_id")
 			continue
 		}
 
-		if err := s.handleMessage(line); err != nil {
+		if err := s.handleMessage(reqMsg); err != nil {
 			log.Printf("处理消息错误: %v", err)
-			// 发送错误响应，防止客户端阻塞
-			parts := strings.SplitN(line, "|", 2)
-			if len(parts) == 2 {
-				s.sendResponse(parts[0], map[string]interface{}{
-					"success": false,
-					"error":   err.Error(),
-				})
-			}
+			_ = s.sendResponse(clientID, &imecore.Response{
+				SeqNum:  int(reqMsg.GetSeqNum()),
+				Success: false,
+				Error:   err.Error(),
+			})
 		}
 	}
 
 	return nil
 }
 
-// handleMessage 处理消息
-// 格式: "<client_id>|<JSON>"
-func (s *Server) handleMessage(line string) error {
-	parts := strings.SplitN(line, "|", 2)
-	if len(parts) != 2 {
-		return fmt.Errorf("无效的消息格式")
-	}
-
-	clientID := parts[0]
-	jsonData := parts[1]
-
-	var req imecore.Request
-	if err := json.Unmarshal([]byte(jsonData), &req); err != nil {
-		return fmt.Errorf("解析 JSON 失败: %w", err)
-	}
+func (s *Server) handleMessage(reqMsg *moqipb.ClientRequest) error {
+	clientID := reqMsg.GetClientId()
+	req := imecore.ParseProtoRequest(reqMsg)
 
 	// logRequestSummary(clientID, &req)
 
 	// 处理请求
-	resp := s.handleRequest(clientID, &req)
+	resp := s.handleRequest(clientID, req)
 
 	// 发送响应
 	return s.sendResponse(clientID, resp)
 }
 
 // handleRequest 处理请求
-func (s *Server) handleRequest(clientID string, req *imecore.Request) map[string]interface{} {
+func (s *Server) handleRequest(clientID string, req *imecore.Request) *imecore.Response {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -180,11 +171,7 @@ func (s *Server) handleRequest(clientID string, req *imecore.Request) map[string
 		guid = strings.ToLower(guid)
 		if guid == "" {
 			log.Printf("初始化失败 client=%s seq=%d 原因=缺少guid id=%q data=%s", clientID, req.SeqNum, req.ID.StringValue(), stringifyData(req.Data))
-			return map[string]interface{}{
-				"seqNum":  req.SeqNum,
-				"success": false,
-				"error":   "缺少 guid",
-			}
+			return &imecore.Response{SeqNum: req.SeqNum, Success: false, Error: "缺少 guid"}
 		}
 
 		// 创建客户端
@@ -201,11 +188,7 @@ func (s *Server) handleRequest(clientID string, req *imecore.Request) map[string
 		factory, ok := s.factories[guid]
 		if !ok {
 			log.Printf("初始化失败 client=%s seq=%d 原因=未知输入法 guid=%s", clientID, req.SeqNum, guid)
-			return map[string]interface{}{
-				"seqNum":  req.SeqNum,
-				"success": false,
-				"error":   fmt.Sprintf("未知的输入法: %s", guid),
-			}
+			return &imecore.Response{SeqNum: req.SeqNum, Success: false, Error: fmt.Sprintf("未知的输入法: %s", guid)}
 		}
 
 		// 创建输入法服务
@@ -227,19 +210,12 @@ func (s *Server) handleRequest(clientID string, req *imecore.Request) map[string
 		if !initOK {
 			delete(s.clients, clientID)
 			log.Printf("初始化失败 client=%s seq=%d guid=%s 原因=Service.Init返回false", clientID, req.SeqNum, guid)
-			return map[string]interface{}{
-				"seqNum":  req.SeqNum,
-				"success": false,
-				"error":   "初始化失败",
-			}
+			return &imecore.Response{SeqNum: req.SeqNum, Success: false, Error: "初始化失败"}
 		}
 
 		log.Printf("初始化成功 client=%s seq=%d guid=%s windows8=%t metro=%t uiless=%t console=%t", clientID, req.SeqNum, guid, req.IsWindows8Above, req.IsMetroApp, req.IsUiLess, req.IsConsole)
 
-		return map[string]interface{}{
-			"seqNum":  req.SeqNum,
-			"success": true,
-		}
+		return &imecore.Response{SeqNum: req.SeqNum, Success: true}
 
 	case "close":
 		if client, ok := s.clients[clientID]; ok {
@@ -249,10 +225,7 @@ func (s *Server) handleRequest(clientID string, req *imecore.Request) map[string
 		} else {
 			log.Printf("客户端关闭 client=%s 但未找到已初始化会话", clientID)
 		}
-		return map[string]interface{}{
-			"seqNum":  req.SeqNum,
-			"success": true,
-		}
+		return &imecore.Response{SeqNum: req.SeqNum, Success: true}
 
 	case "onActivate", "onDeactivate", "filterKeyDown", "onKeyDown",
 		"filterKeyUp", "onKeyUp", "onCommand", "onMenu", "onCompositionTerminated",
@@ -261,82 +234,30 @@ func (s *Server) handleRequest(clientID string, req *imecore.Request) map[string
 		client, ok := s.clients[clientID]
 		if !ok {
 			log.Printf("请求失败 client=%s seq=%d method=%s 原因=客户端未初始化", clientID, req.SeqNum, req.Method)
-			return map[string]interface{}{
-				"seqNum":  req.SeqNum,
-				"success": false,
-				"error":   "客户端未初始化",
-			}
+			return &imecore.Response{SeqNum: req.SeqNum, Success: false, Error: "客户端未初始化"}
 		}
 
 		//log.Printf("转发请求 client=%s seq=%d method=%s guid=%s", clientID, req.SeqNum, req.Method, client.GUID)
-		resp := client.Service.HandleRequest(req)
-		return s.convertResponse(resp)
+		return client.Service.HandleRequest(req)
 
 	default:
 		log.Printf("请求失败 client=%s seq=%d method=%s 原因=未知方法", clientID, req.SeqNum, req.Method)
-		return map[string]interface{}{
-			"seqNum":  req.SeqNum,
-			"success": false,
-			"error":   fmt.Sprintf("未知的方法: %s", req.Method),
-		}
+		return &imecore.Response{SeqNum: req.SeqNum, Success: false, Error: fmt.Sprintf("未知的方法: %s", req.Method)}
 	}
 }
 
 // sendResponse 发送响应
-func (s *Server) sendResponse(clientID string, resp map[string]interface{}) error {
+func (s *Server) sendResponse(clientID string, resp *imecore.Response) error {
 	logResponseSummary(clientID, resp)
-	data, err := json.Marshal(resp)
+	msg, err := imecore.BuildProtoResponse(clientID, resp)
+	if err != nil {
+		return fmt.Errorf("构建 protobuf 响应失败: %w", err)
+	}
+	data, err := encodeServerResponse(msg)
 	if err != nil {
 		return fmt.Errorf("序列化响应失败: %w", err)
 	}
-
-	fmt.Printf("%s|%s|%s\n", imecore.MsgMOQI, clientID, string(data))
-	return nil
-}
-
-// convertResponse 转换响应格式
-func (s *Server) convertResponse(resp *imecore.Response) map[string]interface{} {
-	candidateList := resp.CandidateList
-	if candidateList == nil {
-		candidateList = []string{}
-	}
-	m := map[string]interface{}{
-		"success":           resp.Success,
-		"seqNum":            resp.SeqNum,
-		"cursorPos":         resp.CursorPos,
-		"compositionCursor": resp.CompositionCursor,
-		"candidateCursor":   resp.CandidateCursor,
-		"showCandidates":    resp.ShowCandidates,
-		"compositionString": resp.CompositionString,
-		"candidateList":     candidateList,
-		"selStart":          resp.SelStart,
-		"selEnd":            resp.SelEnd,
-	}
-	if resp.ReturnData != nil {
-		m["return"] = resp.ReturnData
-	} else {
-		m["return"] = resp.ReturnValue
-	}
-
-	if resp.CommitString != "" {
-		m["commitString"] = resp.CommitString
-	}
-	if resp.SetSelKeys != "" {
-		m["setSelKeys"] = resp.SetSelKeys
-	}
-	if len(resp.CustomizeUI) > 0 {
-		m["customizeUI"] = resp.CustomizeUI
-	}
-	if len(resp.AddButton) > 0 {
-		m["addButton"] = resp.AddButton
-	}
-	if len(resp.RemoveButton) > 0 {
-		m["removeButton"] = resp.RemoveButton
-	}
-	if len(resp.ChangeButton) > 0 {
-		m["changeButton"] = resp.ChangeButton
-	}
-	return m
+	return writeFrame(os.Stdout, data)
 }
 
 // loadInputMethods 加载所有输入法
