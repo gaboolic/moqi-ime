@@ -188,9 +188,6 @@ func loadInput(path string) (aiInput, error) {
 
 func buildPrompt(prompt string, input aiInput) string {
 	prompt = strings.TrimSpace(prompt)
-	if prompt == "" {
-		prompt = "上一句是：{{previous_commit}}\n原始输入“{{composition}}”和前三个候选词：\n{{candidates_top3}}\n只输出 1 条最通顺、最自然的整句候选，不要解释。"
-	}
 
 	replacements := map[string]string{
 		"{{previous_commit}}":  previousCommitText(input.PreviousCommit),
