@@ -50,6 +50,8 @@ type Server struct {
 	running   bool
 }
 
+const logRetentionDays = 7
+
 func stringifyData(data map[string]interface{}) string {
 	if len(data) == 0 {
 		return ""
@@ -370,6 +372,7 @@ func openLogFile() (*os.File, error) {
 	candidates = append(candidates, "moqi-ime.log")
 
 	var lastErr error
+	now := time.Now()
 	for _, logPath := range candidates {
 		logDir := filepath.Dir(logPath)
 		if logDir != "." && logDir != "" {
@@ -379,7 +382,9 @@ func openLogFile() (*os.File, error) {
 			}
 		}
 
-		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		cleanupOldDailyLogs(logDir, filepath.Base(logPath), now)
+		dailyLogPath := filepath.Join(logDir, dailyLogFileName(filepath.Base(logPath), now))
+		logFile, err := os.OpenFile(dailyLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 		if err == nil {
 			return logFile, nil
 		}
@@ -387,6 +392,69 @@ func openLogFile() (*os.File, error) {
 	}
 
 	return nil, lastErr
+}
+
+func dailyLogFileName(baseName string, now time.Time) string {
+	ext := filepath.Ext(baseName)
+	name := strings.TrimSuffix(baseName, ext)
+	if ext == "" {
+		return fmt.Sprintf("%s-%s", baseName, now.Format("2006-01-02"))
+	}
+	return fmt.Sprintf("%s-%s%s", name, now.Format("2006-01-02"), ext)
+}
+
+func cleanupOldDailyLogs(logDir, baseName string, now time.Time) {
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		return
+	}
+
+	ext := filepath.Ext(baseName)
+	name := strings.TrimSuffix(baseName, ext)
+	prefix := name + "-"
+	cutoff := now.AddDate(0, 0, -(logRetentionDays - 1)).Format("2006-01-02")
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		fileName := entry.Name()
+		if !strings.HasPrefix(fileName, prefix) || len(fileName) < len(prefix)+10+len(ext) {
+			continue
+		}
+
+		datePart := fileName[len(prefix) : len(prefix)+10]
+		if len(ext) > 0 && !strings.HasPrefix(fileName[len(prefix)+10:], ext) {
+			continue
+		}
+		if !isDateStamp(datePart) {
+			continue
+		}
+
+		if datePart < cutoff {
+			_ = os.Remove(filepath.Join(logDir, fileName))
+		}
+	}
+}
+
+func isDateStamp(value string) bool {
+	if len(value) != 10 {
+		return false
+	}
+	for i, ch := range value {
+		switch i {
+		case 4, 7:
+			if ch != '-' {
+				return false
+			}
+		default:
+			if ch < '0' || ch > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func main() {

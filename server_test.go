@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/binary"
 	"io"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gaboolic/moqi-ime/imecore"
 	gproto "google.golang.org/protobuf/proto"
@@ -103,9 +105,41 @@ func TestOpenLogFileUsesMoqiIMLogDirectoryUnderLocalAppData(t *testing.T) {
 	}
 	defer logFile.Close()
 
-	want := filepath.Join(localAppData, "MoqiIM", "Log", "moqi-ime.log")
+	want := filepath.Join(localAppData, "MoqiIM", "Log", dailyLogFileName("moqi-ime.log", time.Now()))
 	if got := logFile.Name(); filepath.Clean(got) != filepath.Clean(want) {
 		t.Fatalf("expected log path %q, got %q", want, got)
+	}
+}
+
+func TestOpenLogFileRemovesDailyLogsOlderThanRetention(t *testing.T) {
+	localAppData := t.TempDir()
+	t.Setenv("LOCALAPPDATA", localAppData)
+
+	logDir := filepath.Join(localAppData, "MoqiIM", "Log")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		t.Fatalf("mkdir log dir: %v", err)
+	}
+
+	oldFile := filepath.Join(logDir, dailyLogFileName("moqi-ime.log", time.Now().AddDate(0, 0, -logRetentionDays)))
+	if err := os.WriteFile(oldFile, []byte("old"), 0644); err != nil {
+		t.Fatalf("write old log file: %v", err)
+	}
+	recentFile := filepath.Join(logDir, dailyLogFileName("moqi-ime.log", time.Now().AddDate(0, 0, -(logRetentionDays-2))))
+	if err := os.WriteFile(recentFile, []byte("recent"), 0644); err != nil {
+		t.Fatalf("write recent log file: %v", err)
+	}
+
+	logFile, err := openLogFile()
+	if err != nil {
+		t.Fatalf("openLogFile failed: %v", err)
+	}
+	defer logFile.Close()
+
+	if _, err := os.Stat(oldFile); !os.IsNotExist(err) {
+		t.Fatalf("expected old log file to be removed, stat err=%v", err)
+	}
+	if _, err := os.Stat(recentFile); err != nil {
+		t.Fatalf("expected recent log file to remain, stat err=%v", err)
 	}
 }
 
