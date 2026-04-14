@@ -80,6 +80,7 @@ const (
 	ID_APPEARANCE_CAND_COUNT_5        = 191
 	ID_APPEARANCE_CAND_COUNT_7        = 192
 	ID_APPEARANCE_CAND_COUNT_9        = 193
+	ID_SHARED_INPUT_STATE             = 210
 
 	aiSelectKeys     = "123456789"
 	aiHotkeyKeyCode  = 0x47 // G
@@ -171,6 +172,8 @@ type IME struct {
 	asyncResponseSender func(*imecore.Response)
 	aiRequestSeq        uint64
 	appearanceVersion   uint64
+	inputStateShared    bool
+	sharedOptions       map[string]bool
 }
 
 type aiAsyncResult struct {
@@ -253,6 +256,9 @@ func (ime *IME) HandleRequest(req *imecore.Request) *imecore.Response {
 	resp := imecore.NewResponse(req.SeqNum, true)
 	if ime.syncAppearancePrefs() {
 		resp.CustomizeUI = ime.customizeUIMap()
+	}
+	if ime.inputStateShared {
+		ime.applySharedInputStateToBackend()
 	}
 	ime.consumeAIAsyncResult(resp)
 	ime.consumeBackendNotification(resp)
@@ -424,6 +430,12 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 		ime.openPath(logDir)
 	default:
 		previousCandidateCount := ime.candidateCount()
+		if commandID == ID_SHARED_INPUT_STATE {
+			ime.toggleInputStateShared()
+			resp.ReturnValue = 1
+			ime.updateLangStatus(req, resp)
+			return resp
+		}
 		if ime.handleSwitchCommand(commandID) {
 			ime.resetAIState()
 			resp.ReturnValue = 1
@@ -1093,7 +1105,9 @@ func (ime *IME) onKey(req *imecore.Request, resp *imecore.Response) bool {
 		return false
 	}
 	ime.updateLangStatus(req, resp)
-	return ime.fillResponseFromBackendState(resp, true)
+	handled := ime.fillResponseFromBackendState(resp, true)
+	ime.syncSharedInputStateFromBackendIfChanged()
+	return handled
 }
 
 func (ime *IME) rememberAICommit(commit string) {
@@ -1110,6 +1124,9 @@ func (ime *IME) createSession(resp *imecore.Response) {
 	}
 	if !ime.backend.EnsureSession() {
 		return
+	}
+	if ime.inputStateShared {
+		ime.applySharedInputStateToBackend()
 	}
 	if ime.candidateCount() != 9 {
 		_ = ime.backend.SetCandidatePageSize(ime.candidateCount())
@@ -1326,6 +1343,10 @@ func (ime *IME) toggleOption(name string) {
 		return
 	}
 	ime.backend.SetOption(name, !ime.backend.GetOption(name))
+	if ime.inputStateShared && ime.isSharedInputStateOption(name) {
+		ime.captureSharedInputStateFromBackend()
+		ime.saveAppearancePrefs()
+	}
 }
 
 func schemaCommandID(index int) int {
@@ -1470,7 +1491,14 @@ func (ime *IME) handleSchemaCommand(commandID int) bool {
 	if schemaID == "" {
 		return false
 	}
-	return ime.backend.SelectSchema(schemaID)
+	if !ime.backend.SelectSchema(schemaID) {
+		return false
+	}
+	if ime.inputStateShared {
+		ime.applySharedInputStateToBackend()
+		ime.syncSharedInputStateFromBackendIfChanged()
+	}
+	return true
 }
 
 func (ime *IME) updateLangStatus(req *imecore.Request, resp *imecore.Response) {
@@ -1501,6 +1529,98 @@ func (ime *IME) updateLangStatus(req *imecore.Request, resp *imecore.Response) {
 			Icon: iconPath,
 		})
 	}
+}
+
+func (ime *IME) shareableOptionNames() []string {
+	if ime.backend == nil {
+		return nil
+	}
+	names := ime.backend.SaveOptions()
+	if len(names) == 0 {
+		return nil
+	}
+	unique := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		unique = append(unique, name)
+	}
+	return unique
+}
+
+func (ime *IME) isSharedInputStateOption(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	for _, candidate := range ime.shareableOptionNames() {
+		if candidate == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (ime *IME) captureSharedInputStateFromBackend() {
+	if ime.backend == nil {
+		return
+	}
+	if ime.sharedOptions == nil {
+		ime.sharedOptions = make(map[string]bool)
+	}
+	for _, name := range ime.shareableOptionNames() {
+		ime.sharedOptions[name] = ime.backend.GetOption(name)
+	}
+}
+
+func (ime *IME) applySharedInputStateToBackend() {
+	if ime.backend == nil || !ime.inputStateShared {
+		return
+	}
+	for name, value := range ime.sharedOptions {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		ime.backend.SetOption(name, value)
+	}
+}
+
+func (ime *IME) syncSharedInputStateFromBackendIfChanged() {
+	if ime.backend == nil || !ime.inputStateShared {
+		return
+	}
+	if ime.sharedOptions == nil {
+		ime.sharedOptions = make(map[string]bool)
+	}
+	changed := false
+	for _, name := range ime.shareableOptionNames() {
+		value := ime.backend.GetOption(name)
+		if current, ok := ime.sharedOptions[name]; ok && current == value {
+			continue
+		}
+		ime.sharedOptions[name] = value
+		changed = true
+	}
+	if !changed {
+		return
+	}
+	ime.saveAppearancePrefs()
+}
+
+func (ime *IME) toggleInputStateShared() {
+	ime.inputStateShared = !ime.inputStateShared
+	if ime.inputStateShared {
+		ime.captureSharedInputStateFromBackend()
+	}
+	ime.saveAppearancePrefs()
 }
 
 func (ime *IME) addButtons(resp *imecore.Response) {
@@ -1619,6 +1739,7 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 		items = append(items, map[string]interface{}{"text": ""})
 	}
 	items = append(items,
+		map[string]interface{}{"id": ID_SHARED_INPUT_STATE, "text": "输入状态共享", "checked": ime.inputStateShared},
 		map[string]interface{}{"text": "外观(&A)", "submenu": []map[string]interface{}{
 			{"text": "切换主题", "submenu": []map[string]interface{}{
 				{"id": ID_APPEARANCE_THEME_DEFAULT, "text": "默认主题", "checked": ime.style.CandidateTheme == "default"},

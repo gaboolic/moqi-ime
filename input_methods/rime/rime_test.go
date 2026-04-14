@@ -1355,6 +1355,24 @@ func TestBuildMenuIncludesCandidateCountSubmenu(t *testing.T) {
 	}
 }
 
+func TestBuildMenuIncludesSharedInputStateToggle(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+
+	items := ime.buildMenu()
+	found := false
+	for _, item := range items {
+		if text, _ := item["text"].(string); text == "输入状态共享" {
+			found = true
+			if checked, _ := item["checked"].(bool); checked {
+				t.Fatalf("expected input state sharing disabled by default, got %#v", item)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected shared input state toggle in menu, got %#v", items)
+	}
+}
+
 func TestFillResponseFromBackendStateAppliesCandidateCount(t *testing.T) {
 	ime := newIsolatedTestIME(t)
 	ime.style.CandidateCount = 5
@@ -1449,6 +1467,88 @@ func TestHandleRequestSyncsAppearanceAcrossInstances(t *testing.T) {
 	}
 	if second.style.CandidateBackgroundColor != "#f3e8ff" {
 		t.Fatalf("expected synced background color, got %q", second.style.CandidateBackgroundColor)
+	}
+}
+
+func TestHandleRequestSyncsSharedInputStateAcrossInstances(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	resetSharedAppearanceConfigForTest()
+
+	first := newTestIME()
+	first.inputStateShared = true
+	first.backend.SetOption("ascii_mode", true)
+	first.backend.SetOption("ascii_punct", true)
+	first.backend.SetOption("traditionalization", true)
+	first.backend.SetOption("full_shape", true)
+	first.captureSharedInputStateFromBackend()
+	first.saveAppearancePrefs()
+
+	second := newTestIME()
+	resp := second.HandleRequest(&imecore.Request{
+		SeqNum: 16,
+		Method: "onMenu",
+		ID:     imecore.FlexibleID{String: "settings"},
+	})
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected onMenu handled, got %d", resp.ReturnValue)
+	}
+	if !second.inputStateShared {
+		t.Fatal("expected second instance to enable shared input state")
+	}
+	if !second.backend.GetOption("ascii_mode") {
+		t.Fatal("expected ascii_mode synced to enabled")
+	}
+	if !second.backend.GetOption("ascii_punct") {
+		t.Fatal("expected ascii_punct synced to enabled")
+	}
+	if !second.backend.GetOption("traditionalization") {
+		t.Fatal("expected traditionalization synced to enabled")
+	}
+	if !second.backend.GetOption("full_shape") {
+		t.Fatal("expected full_shape synced to enabled")
+	}
+}
+
+func TestHandleRequestSyncsDynamicSharedOptionsAcrossInstances(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	resetSharedAppearanceConfigForTest()
+
+	first := newTestIME()
+	first.inputStateShared = true
+	firstBackend := first.backend.(*testBackend)
+	firstBackend.saveOptions = []string{"emoji", "ascii_mode"}
+	firstBackend.schemaSwitches[firstBackend.currentSchemaID] = []RimeSwitch{
+		{Name: "emoji", States: []string{"常规", "Emoji"}},
+		{Name: "ascii_mode", States: []string{"中文", "西文"}},
+	}
+	first.backend.SetOption("emoji", true)
+	first.backend.SetOption("ascii_mode", true)
+	first.captureSharedInputStateFromBackend()
+	first.saveAppearancePrefs()
+
+	second := newTestIME()
+	secondBackend := second.backend.(*testBackend)
+	secondBackend.saveOptions = []string{"emoji", "ascii_mode"}
+	secondBackend.schemaSwitches[secondBackend.currentSchemaID] = []RimeSwitch{
+		{Name: "emoji", States: []string{"常规", "Emoji"}},
+		{Name: "ascii_mode", States: []string{"中文", "西文"}},
+	}
+
+	resp := second.HandleRequest(&imecore.Request{
+		SeqNum: 17,
+		Method: "onMenu",
+		ID:     imecore.FlexibleID{String: "settings"},
+	})
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected onMenu handled, got %d", resp.ReturnValue)
+	}
+	if !second.backend.GetOption("emoji") {
+		t.Fatal("expected dynamic emoji option synced to enabled")
+	}
+	if !second.backend.GetOption("ascii_mode") {
+		t.Fatal("expected ascii_mode synced to enabled")
 	}
 }
 
@@ -1608,8 +1708,14 @@ func TestLoadAppearancePrefsCreatesDefaultConfigWhenMissing(t *testing.T) {
 	if got := persisted["candidate_theme"]; got != "default" {
 		t.Fatalf("expected persisted candidate_theme default, got %#v", got)
 	}
+	if got := persisted["input_state_shared"]; got != false {
+		t.Fatalf("expected persisted input_state_shared false, got %#v", got)
+	}
 	if ime.style.CandidatePerRow != 1 {
 		t.Fatalf("expected in-memory style to stay vertical by default, got %d", ime.style.CandidatePerRow)
+	}
+	if ime.inputStateShared {
+		t.Fatal("expected shared input state disabled by default")
 	}
 }
 

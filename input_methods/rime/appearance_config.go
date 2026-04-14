@@ -13,16 +13,21 @@ const appearanceConfigFileName = "appearance_config.json"
 const rimeDefaultCustomConfigFileName = "default.custom.yaml"
 
 type appearanceConfig struct {
-	CandidateTheme              *string `json:"candidate_theme,omitempty"`
-	FontPoint                   *int    `json:"font_point,omitempty"`
-	CandidateCommentFontPoint   *int    `json:"candidate_comment_font_point,omitempty"`
-	InlinePreedit               *bool   `json:"inline_preedit,omitempty"`
-	CandidatePerRow             *int    `json:"candidate_per_row,omitempty"`
-	CandidateCount              *int    `json:"candidate_count,omitempty"`
-	CandidateBackgroundColor    *string `json:"candidate_background_color,omitempty"`
-	CandidateHighlightColor     *string `json:"candidate_highlight_color,omitempty"`
-	CandidateTextColor          *string `json:"candidate_text_color,omitempty"`
-	CandidateHighlightTextColor *string `json:"candidate_highlight_text_color,omitempty"`
+	CandidateTheme              *string         `json:"candidate_theme,omitempty"`
+	FontPoint                   *int            `json:"font_point,omitempty"`
+	CandidateCommentFontPoint   *int            `json:"candidate_comment_font_point,omitempty"`
+	InlinePreedit               *bool           `json:"inline_preedit,omitempty"`
+	CandidatePerRow             *int            `json:"candidate_per_row,omitempty"`
+	CandidateCount              *int            `json:"candidate_count,omitempty"`
+	CandidateBackgroundColor    *string         `json:"candidate_background_color,omitempty"`
+	CandidateHighlightColor     *string         `json:"candidate_highlight_color,omitempty"`
+	CandidateTextColor          *string         `json:"candidate_text_color,omitempty"`
+	CandidateHighlightTextColor *string         `json:"candidate_highlight_text_color,omitempty"`
+	InputStateShared            *bool           `json:"input_state_shared,omitempty"`
+	SharedOptions               map[string]bool `json:"shared_options,omitempty"`
+	SharedAsciiMode             *bool           `json:"shared_ascii_mode,omitempty"`
+	SharedFullShape             *bool           `json:"shared_full_shape,omitempty"`
+	SharedTraditionalization    *bool           `json:"shared_traditionalization,omitempty"`
 }
 
 var appearanceState struct {
@@ -68,7 +73,23 @@ func cloneAppearanceConfig(cfg appearanceConfig) appearanceConfig {
 		CandidateHighlightColor:     cloneStringPtr(cfg.CandidateHighlightColor),
 		CandidateTextColor:          cloneStringPtr(cfg.CandidateTextColor),
 		CandidateHighlightTextColor: cloneStringPtr(cfg.CandidateHighlightTextColor),
+		InputStateShared:            cloneBoolPtr(cfg.InputStateShared),
+		SharedOptions:               cloneBoolMap(cfg.SharedOptions),
+		SharedAsciiMode:             cloneBoolPtr(cfg.SharedAsciiMode),
+		SharedFullShape:             cloneBoolPtr(cfg.SharedFullShape),
+		SharedTraditionalization:    cloneBoolPtr(cfg.SharedTraditionalization),
 	}
+}
+
+func cloneBoolMap(values map[string]bool) map[string]bool {
+	if len(values) == 0 {
+		return nil
+	}
+	cloned := make(map[string]bool, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func sharedAppearanceConfig() (appearanceConfig, uint64, bool) {
@@ -256,6 +277,24 @@ func (ime *IME) applyAppearanceConfig(cfg appearanceConfig) {
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateHighlightTextColor = normalizeColor(*cfg.CandidateHighlightTextColor)
 	}
+	if cfg.InputStateShared != nil {
+		ime.inputStateShared = *cfg.InputStateShared
+	}
+	if len(cfg.SharedOptions) > 0 {
+		ime.sharedOptions = cloneBoolMap(cfg.SharedOptions)
+	}
+	if ime.sharedOptions == nil {
+		ime.sharedOptions = make(map[string]bool)
+	}
+	if cfg.SharedAsciiMode != nil {
+		ime.sharedOptions["ascii_mode"] = *cfg.SharedAsciiMode
+	}
+	if cfg.SharedFullShape != nil {
+		ime.sharedOptions["full_shape"] = *cfg.SharedFullShape
+	}
+	if cfg.SharedTraditionalization != nil {
+		ime.sharedOptions["traditionalization"] = *cfg.SharedTraditionalization
+	}
 }
 
 func (ime *IME) loadAppearancePrefs() {
@@ -303,6 +342,8 @@ func (ime *IME) saveAppearancePrefs() {
 		CandidatePerRow:           &candidatePerRow,
 		CandidateCount:            &candidateCount,
 	}
+	inputStateShared := ime.inputStateShared
+	cfg.InputStateShared = &inputStateShared
 	if !isBuiltinTheme(theme) || theme == "custom" {
 		backgroundColor := ime.style.CandidateBackgroundColor
 		highlightColor := ime.style.CandidateHighlightColor
@@ -312,6 +353,9 @@ func (ime *IME) saveAppearancePrefs() {
 		cfg.CandidateHighlightColor = &highlightColor
 		cfg.CandidateTextColor = &textColor
 		cfg.CandidateHighlightTextColor = &highlightTextColor
+	}
+	if ime.inputStateShared {
+		cfg.SharedOptions = cloneBoolMap(ime.sharedOptions)
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
