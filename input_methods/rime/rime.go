@@ -251,7 +251,9 @@ func (ime *IME) HandleRequest(req *imecore.Request) *imecore.Response {
 	defer ime.mu.Unlock()
 
 	resp := imecore.NewResponse(req.SeqNum, true)
-	ime.syncAppearancePrefs()
+	if ime.syncAppearancePrefs() {
+		resp.CustomizeUI = ime.customizeUIMap()
+	}
 	ime.consumeAIAsyncResult(resp)
 	ime.consumeBackendNotification(resp)
 	log.Printf("RIME 输入法处理请求 client=%s seq=%d method=%s", ime.Client.ID, req.SeqNum, req.Method)

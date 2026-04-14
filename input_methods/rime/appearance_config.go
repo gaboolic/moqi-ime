@@ -323,13 +323,14 @@ func (ime *IME) saveAppearancePrefs() {
 	ime.appearanceVersion = setSharedAppearanceConfig(cfg)
 }
 
-func (ime *IME) syncAppearancePrefs() {
+func (ime *IME) syncAppearancePrefs() bool {
 	cfg, version, ok := sharedAppearanceConfig()
 	if !ok || version == ime.appearanceVersion {
-		return
+		return false
 	}
 	ime.applyAppearanceConfig(cfg)
 	ime.appearanceVersion = version
+	return true
 }
 
 func normalizeColor(value string) string {
