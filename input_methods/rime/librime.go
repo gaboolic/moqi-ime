@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -66,6 +67,11 @@ type RimeCommit struct {
 type RimeSchema struct {
 	ID   string
 	Name string
+}
+
+type RimeSwitch struct {
+	Name   string
+	States []string
 }
 
 type NotificationHandler func(session RimeSessionId, messageType, messageValue string)
@@ -137,6 +143,14 @@ type rimeConfigC struct {
 	Ptr uintptr
 }
 
+type rimeConfigIteratorC struct {
+	List  uintptr
+	Map   uintptr
+	Index int32
+	Key   *byte
+	Path  *byte
+}
+
 var (
 	rimeDLLMu sync.Mutex
 	rimeDLL   *syscall.LazyDLL
@@ -164,8 +178,18 @@ var (
 		getCurrentSchema      *syscall.LazyProc
 		selectSchema          *syscall.LazyProc
 		schemaOpen            *syscall.LazyProc
+		configOpen            *syscall.LazyProc
 		configClose           *syscall.LazyProc
+		configGetCString      *syscall.LazyProc
+		configGetItem         *syscall.LazyProc
+		configBeginMap        *syscall.LazyProc
+		configBeginList       *syscall.LazyProc
+		configNext            *syscall.LazyProc
+		configEnd             *syscall.LazyProc
+		configListSize        *syscall.LazyProc
 		configSetInt          *syscall.LazyProc
+		getStateLabel         *syscall.LazyProc
+		getStateLabelAbbrev   *syscall.LazyProc
 		getVersion            *syscall.LazyProc
 	}
 )
@@ -206,8 +230,18 @@ func loadRimeDLL(dllPath string) error {
 		getCurrentSchema      *syscall.LazyProc
 		selectSchema          *syscall.LazyProc
 		schemaOpen            *syscall.LazyProc
+		configOpen            *syscall.LazyProc
 		configClose           *syscall.LazyProc
+		configGetCString      *syscall.LazyProc
+		configGetItem         *syscall.LazyProc
+		configBeginMap        *syscall.LazyProc
+		configBeginList       *syscall.LazyProc
+		configNext            *syscall.LazyProc
+		configEnd             *syscall.LazyProc
+		configListSize        *syscall.LazyProc
 		configSetInt          *syscall.LazyProc
+		getStateLabel         *syscall.LazyProc
+		getStateLabelAbbrev   *syscall.LazyProc
 		getVersion            *syscall.LazyProc
 	}{
 		setup:                 dll.NewProc("RimeSetup"),
@@ -233,8 +267,18 @@ func loadRimeDLL(dllPath string) error {
 		getCurrentSchema:      dll.NewProc("RimeGetCurrentSchema"),
 		selectSchema:          dll.NewProc("RimeSelectSchema"),
 		schemaOpen:            dll.NewProc("RimeSchemaOpen"),
+		configOpen:            dll.NewProc("RimeConfigOpen"),
 		configClose:           dll.NewProc("RimeConfigClose"),
+		configGetCString:      dll.NewProc("RimeConfigGetCString"),
+		configGetItem:         dll.NewProc("RimeConfigGetItem"),
+		configBeginMap:        dll.NewProc("RimeConfigBeginMap"),
+		configBeginList:       dll.NewProc("RimeConfigBeginList"),
+		configNext:            dll.NewProc("RimeConfigNext"),
+		configEnd:             dll.NewProc("RimeConfigEnd"),
+		configListSize:        dll.NewProc("RimeConfigListSize"),
 		configSetInt:          dll.NewProc("RimeConfigSetInt"),
+		getStateLabel:         dll.NewProc("RimeGetStateLabel"),
+		getStateLabelAbbrev:   dll.NewProc("RimeGetStateLabelAbbreviated"),
 		getVersion:            dll.NewProc("RimeGetVersion"),
 	}
 
@@ -476,6 +520,177 @@ func SelectSchema(sessionId RimeSessionId, schemaID string) bool {
 	r1, _, _ := rimeProcs.selectSchema.Call(uintptr(sessionId), uintptr(unsafe.Pointer(cSchemaID)))
 	runtime.KeepAlive(cSchemaID)
 	return boolResult(r1)
+}
+
+func openConfig(configID string) (rimeConfigC, bool) {
+	if configID == "" || !procAvailable(rimeProcs.configOpen) || !procAvailable(rimeProcs.configClose) {
+		return rimeConfigC{}, false
+	}
+	var config rimeConfigC
+	cConfigID := utf8Ptr(configID)
+	r1, _, _ := rimeProcs.configOpen.Call(uintptr(unsafe.Pointer(cConfigID)), uintptr(unsafe.Pointer(&config)))
+	runtime.KeepAlive(cConfigID)
+	if !boolResult(r1) {
+		return rimeConfigC{}, false
+	}
+	return config, true
+}
+
+func closeConfig(config *rimeConfigC) {
+	if config == nil || !procAvailable(rimeProcs.configClose) {
+		return
+	}
+	rimeProcs.configClose.Call(uintptr(unsafe.Pointer(config)))
+}
+
+func configGetCString(config *rimeConfigC, key string) string {
+	if config == nil || !procAvailable(rimeProcs.configGetCString) {
+		return ""
+	}
+	cKey := utf8Ptr(key)
+	r1, _, _ := rimeProcs.configGetCString.Call(uintptr(unsafe.Pointer(config)), uintptr(unsafe.Pointer(cKey)))
+	runtime.KeepAlive(cKey)
+	return cString((*byte)(unsafe.Pointer(r1)))
+}
+
+func configListSize(config *rimeConfigC, key string) int {
+	if config == nil || !procAvailable(rimeProcs.configListSize) {
+		return 0
+	}
+	cKey := utf8Ptr(key)
+	r1, _, _ := rimeProcs.configListSize.Call(uintptr(unsafe.Pointer(config)), uintptr(unsafe.Pointer(cKey)))
+	runtime.KeepAlive(cKey)
+	return int(r1)
+}
+
+func configListStrings(config *rimeConfigC, key string) []string {
+	if config == nil || !procAvailable(rimeProcs.configBeginList) || !procAvailable(rimeProcs.configNext) || !procAvailable(rimeProcs.configEnd) {
+		return nil
+	}
+	cKey := utf8Ptr(key)
+	var iterator rimeConfigIteratorC
+	r1, _, _ := rimeProcs.configBeginList.Call(
+		uintptr(unsafe.Pointer(&iterator)),
+		uintptr(unsafe.Pointer(config)),
+		uintptr(unsafe.Pointer(cKey)),
+	)
+	runtime.KeepAlive(cKey)
+	if !boolResult(r1) {
+		return nil
+	}
+	defer rimeProcs.configEnd.Call(uintptr(unsafe.Pointer(&iterator)))
+
+	var items []string
+	for {
+		r1, _, _ = rimeProcs.configNext.Call(uintptr(unsafe.Pointer(&iterator)))
+		if !boolResult(r1) {
+			break
+		}
+		value := strings.TrimSpace(configGetCString(config, cString(iterator.Path)))
+		if value == "" {
+			continue
+		}
+		items = append(items, value)
+	}
+	return items
+}
+
+func configPathJoin(base, key string) string {
+	if base == "" {
+		return key
+	}
+	if key == "" {
+		return base
+	}
+	return base + "/" + key
+}
+
+func getSchemaSwitchesFromConfig(config *rimeConfigC) []RimeSwitch {
+	if config == nil || !procAvailable(rimeProcs.configBeginList) || !procAvailable(rimeProcs.configNext) || !procAvailable(rimeProcs.configEnd) {
+		return nil
+	}
+	var iterator rimeConfigIteratorC
+	cKey := utf8Ptr("switches")
+	r1, _, _ := rimeProcs.configBeginList.Call(
+		uintptr(unsafe.Pointer(&iterator)),
+		uintptr(unsafe.Pointer(config)),
+		uintptr(unsafe.Pointer(cKey)),
+	)
+	runtime.KeepAlive(cKey)
+	if !boolResult(r1) {
+		return nil
+	}
+	defer rimeProcs.configEnd.Call(uintptr(unsafe.Pointer(&iterator)))
+
+	switches := make([]RimeSwitch, 0)
+	for {
+		r1, _, _ = rimeProcs.configNext.Call(uintptr(unsafe.Pointer(&iterator)))
+		if !boolResult(r1) {
+			break
+		}
+		basePath := cString(iterator.Path)
+		name := strings.TrimSpace(configGetCString(config, configPathJoin(basePath, "name")))
+		if name == "" {
+			continue
+		}
+		statesPath := configPathJoin(basePath, "states")
+		stateCount := configListSize(config, statesPath)
+		states := make([]string, 0, stateCount)
+		for _, state := range configListStrings(config, statesPath) {
+			state = strings.TrimSpace(state)
+			if state == "" {
+				continue
+			}
+			states = append(states, state)
+		}
+		switches = append(switches, RimeSwitch{
+			Name:   name,
+			States: states,
+		})
+	}
+	return switches
+}
+
+func GetConfigStringList(configID, key string) []string {
+	if configID == "" {
+		return nil
+	}
+	config, ok := openConfig(configID)
+	if !ok {
+		return nil
+	}
+	defer closeConfig(&config)
+	return configListStrings(&config, key)
+}
+
+func GetSchemaConfigStringList(schemaID, key string) []string {
+	if schemaID == "" || !procAvailable(rimeProcs.schemaOpen) || !procAvailable(rimeProcs.configClose) {
+		return nil
+	}
+	var config rimeConfigC
+	cSchemaID := utf8Ptr(schemaID)
+	r1, _, _ := rimeProcs.schemaOpen.Call(uintptr(unsafe.Pointer(cSchemaID)), uintptr(unsafe.Pointer(&config)))
+	runtime.KeepAlive(cSchemaID)
+	if !boolResult(r1) {
+		return nil
+	}
+	defer closeConfig(&config)
+	return configListStrings(&config, key)
+}
+
+func GetSchemaSwitches(schemaID string) []RimeSwitch {
+	if schemaID == "" || !procAvailable(rimeProcs.schemaOpen) || !procAvailable(rimeProcs.configClose) {
+		return nil
+	}
+	var config rimeConfigC
+	cSchemaID := utf8Ptr(schemaID)
+	r1, _, _ := rimeProcs.schemaOpen.Call(uintptr(unsafe.Pointer(cSchemaID)), uintptr(unsafe.Pointer(&config)))
+	runtime.KeepAlive(cSchemaID)
+	if !boolResult(r1) {
+		return nil
+	}
+	defer closeConfig(&config)
+	return getSchemaSwitchesFromConfig(&config)
 }
 
 func SetSchemaPageSize(schemaID string, pageSize int) bool {

@@ -32,6 +32,7 @@ const (
 	ID_USER_DIR           = 14
 	ID_LOG_DIR            = 16
 	ID_SCHEMA_BASE        = 1000
+	ID_SWITCH_BASE        = 2000
 
 	ID_APPEARANCE_INLINE_PREEDIT      = 100
 	ID_APPEARANCE_FONT_14             = 110
@@ -132,6 +133,8 @@ type rimeBackend interface {
 	State() rimeState
 	SetOption(name string, value bool)
 	GetOption(name string) bool
+	SaveOptions() []string
+	SchemaSwitches() []RimeSwitch
 	SchemaList() []RimeSchema
 	CurrentSchemaID() string
 	SelectSchema(schemaID string) bool
@@ -419,6 +422,12 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 		ime.openPath(logDir)
 	default:
 		previousCandidateCount := ime.candidateCount()
+		if ime.handleSwitchCommand(commandID) {
+			ime.resetAIState()
+			resp.ReturnValue = 1
+			ime.updateLangStatus(req, resp)
+			return resp
+		}
 		if ime.handleSchemaCommand(commandID) {
 			ime.resetAIState()
 			resp.ReturnValue = 1
@@ -1329,6 +1338,93 @@ func schemaCommandIndex(commandID int) (int, bool) {
 	return index, true
 }
 
+func switchCommandID(index int) int {
+	return ID_SWITCH_BASE + index
+}
+
+func switchCommandIndex(commandID int) (int, bool) {
+	index := commandID - ID_SWITCH_BASE
+	if index < 0 {
+		return 0, false
+	}
+	return index, true
+}
+
+func (ime *IME) menuSwitches() []RimeSwitch {
+	if ime.backend == nil {
+		return nil
+	}
+	savedOptions := ime.backend.SaveOptions()
+	if len(savedOptions) == 0 {
+		return nil
+	}
+	switches := ime.backend.SchemaSwitches()
+	if len(switches) == 0 {
+		return nil
+	}
+	switchByName := make(map[string]RimeSwitch, len(switches))
+	for _, sw := range switches {
+		name := strings.TrimSpace(sw.Name)
+		if name == "" {
+			continue
+		}
+		sw.Name = name
+		switchByName[name] = sw
+	}
+	menuSwitches := make([]RimeSwitch, 0, len(savedOptions))
+	seen := make(map[string]struct{}, len(savedOptions))
+	for _, name := range savedOptions {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		sw, ok := switchByName[name]
+		if !ok {
+			continue
+		}
+		menuSwitches = append(menuSwitches, sw)
+		seen[name] = struct{}{}
+	}
+	return menuSwitches
+}
+
+func switchMenuText(sw RimeSwitch, enabled bool) string {
+	switch len(sw.States) {
+	case 0:
+		return sw.Name
+	case 1:
+		return sw.States[0]
+	default:
+		if enabled {
+			return fmt.Sprintf("%s → %s", sw.States[1], sw.States[0])
+		}
+		return fmt.Sprintf("%s → %s", sw.States[0], sw.States[1])
+	}
+}
+
+func (ime *IME) handleSwitchCommand(commandID int) bool {
+	if ime.backend == nil {
+		return false
+	}
+	index, ok := switchCommandIndex(commandID)
+	if !ok {
+		return false
+	}
+	switches := ime.menuSwitches()
+	if index < 0 || index >= len(switches) {
+		return false
+	}
+	name := strings.TrimSpace(switches[index].Name)
+	if name == "" {
+		return false
+	}
+	ime.toggleOption(name)
+	return true
+}
+
 func (ime *IME) schemaMenuItems() []map[string]interface{} {
 	if ime.backend == nil {
 		return nil
@@ -1499,35 +1595,19 @@ func (ime *IME) iconPath(name string) string {
 }
 
 func (ime *IME) buildMenu() []map[string]interface{} {
-	asciiMode := ime.backend != nil && ime.backend.GetOption("ascii_mode")
-	fullShape := ime.backend != nil && ime.backend.GetOption("full_shape")
-	asciiPunct := ime.backend != nil && ime.backend.GetOption("ascii_punct")
-	traditionalization := ime.backend != nil && ime.backend.GetOption("traditionalization")
+	menuSwitches := ime.menuSwitches()
 	schemaItems := ime.schemaMenuItems()
-
-	asciiText := "中文 → 英文"
-	if asciiMode {
-		asciiText = "英文 → 中文"
+	items := make([]map[string]interface{}, 0, len(menuSwitches)+8)
+	for i, sw := range menuSwitches {
+		enabled := ime.backend != nil && ime.backend.GetOption(sw.Name)
+		items = append(items, map[string]interface{}{
+			"id":      switchCommandID(i),
+			"text":    switchMenuText(sw, enabled),
+			"checked": enabled,
+		})
 	}
-	shapeText := "半角 → 全角"
-	if fullShape {
-		shapeText = "全角 → 半角"
-	}
-	punctText := "中文标点 → 英文标点"
-	if asciiPunct {
-		punctText = "英文标点 → 中文标点"
-	}
-	traditionalizationText := "简体 → 繁体"
-	if traditionalization {
-		traditionalizationText = "繁体 → 简体"
-	}
-
-	items := []map[string]interface{}{
-		{"id": ID_ASCII_MODE, "text": asciiText},
-		{"id": ID_TRADITIONALIZATION, "text": traditionalizationText},
-		{"id": ID_ASCII_PUNCT, "text": punctText},
-		{"id": ID_FULL_SHAPE, "text": shapeText},
-		{"text": ""},
+	if len(menuSwitches) > 0 {
+		items = append(items, map[string]interface{}{"text": ""})
 	}
 	if len(schemaItems) > 0 {
 		items = append(items, map[string]interface{}{

@@ -259,6 +259,37 @@ func (b *nativeBackend) GetOption(name string) bool {
 	return GetOption(b.sessionID, name)
 }
 
+func (b *nativeBackend) SaveOptions() []string {
+	if !rimeRuntime.tryBeginOperation() {
+		return nil
+	}
+	defer rimeRuntime.endOperation()
+
+	if b.ensureSessionLocked() {
+		if schemaID := GetCurrentSchema(b.sessionID); schemaID != "" {
+			if options := GetSchemaConfigStringList(schemaID, "switcher/save_options"); len(options) > 0 {
+				return options
+			}
+		}
+	}
+	return GetConfigStringList("default", "switcher/save_options")
+}
+
+func (b *nativeBackend) SchemaSwitches() []RimeSwitch {
+	if !rimeRuntime.tryBeginOperation() {
+		return nil
+	}
+	defer rimeRuntime.endOperation()
+	if !b.ensureSessionLocked() {
+		return nil
+	}
+	schemaID := GetCurrentSchema(b.sessionID)
+	if schemaID == "" {
+		return nil
+	}
+	return GetSchemaSwitches(schemaID)
+}
+
 func (b *nativeBackend) SchemaList() []RimeSchema {
 	if !rimeRuntime.tryBeginOperation() {
 		return nil

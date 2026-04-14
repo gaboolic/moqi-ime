@@ -63,6 +63,14 @@ func (b *fakeBackend) GetOption(name string) bool {
 	return false
 }
 
+func (b *fakeBackend) SaveOptions() []string {
+	return nil
+}
+
+func (b *fakeBackend) SchemaSwitches() []RimeSwitch {
+	return nil
+}
+
 func (b *fakeBackend) SchemaList() []RimeSchema {
 	return nil
 }

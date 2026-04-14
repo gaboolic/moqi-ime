@@ -34,6 +34,9 @@ type testBackend struct {
 	commitString      string
 	asciiMode         bool
 	fullShape         bool
+	options           map[string]bool
+	saveOptions       []string
+	schemaSwitches    map[string][]RimeSwitch
 	schemas           []RimeSchema
 	currentSchemaID   string
 	selectSchemaCalls []string
@@ -55,6 +58,33 @@ func newTestBackend() *testBackend {
 			{ID: "rime_frost", Name: "白霜拼音"},
 			{ID: "rime_frost_double_pinyin", Name: "自然码双拼"},
 			{ID: "rime_frost_double_pinyin_flypy", Name: "小鹤双拼"},
+		},
+		options: map[string]bool{
+			"ascii_mode":         false,
+			"full_shape":         false,
+			"ascii_punct":        false,
+			"traditionalization": false,
+		},
+		saveOptions: []string{"ascii_mode", "traditionalization", "ascii_punct", "full_shape"},
+		schemaSwitches: map[string][]RimeSwitch{
+			"rime_frost": {
+				{Name: "ascii_mode", States: []string{"中文", "西文"}},
+				{Name: "traditionalization", States: []string{"简体", "繁体"}},
+				{Name: "ascii_punct", States: []string{"中文标点", "英文标点"}},
+				{Name: "full_shape", States: []string{"半角", "全角"}},
+			},
+			"rime_frost_double_pinyin": {
+				{Name: "ascii_mode", States: []string{"中文", "西文"}},
+				{Name: "traditionalization", States: []string{"简体", "繁体"}},
+				{Name: "ascii_punct", States: []string{"中文标点", "英文标点"}},
+				{Name: "full_shape", States: []string{"半角", "全角"}},
+			},
+			"rime_frost_double_pinyin_flypy": {
+				{Name: "ascii_mode", States: []string{"中文", "西文"}},
+				{Name: "traditionalization", States: []string{"简体", "繁体"}},
+				{Name: "ascii_punct", States: []string{"中文标点", "英文标点"}},
+				{Name: "full_shape", States: []string{"半角", "全角"}},
+			},
 		},
 		currentSchemaID: "rime_frost",
 		pageSizeOK:      false,
@@ -177,6 +207,10 @@ func (b *testBackend) State() rimeState {
 }
 
 func (b *testBackend) SetOption(name string, value bool) {
+	if b.options == nil {
+		b.options = map[string]bool{}
+	}
+	b.options[name] = value
 	switch name {
 	case "ascii_mode":
 		b.asciiMode = value
@@ -186,6 +220,11 @@ func (b *testBackend) SetOption(name string, value bool) {
 }
 
 func (b *testBackend) GetOption(name string) bool {
+	if b.options != nil {
+		if value, ok := b.options[name]; ok {
+			return value
+		}
+	}
 	switch name {
 	case "ascii_mode":
 		return b.asciiMode
@@ -194,6 +233,14 @@ func (b *testBackend) GetOption(name string) bool {
 	default:
 		return false
 	}
+}
+
+func (b *testBackend) SaveOptions() []string {
+	return append([]string(nil), b.saveOptions...)
+}
+
+func (b *testBackend) SchemaSwitches() []RimeSwitch {
+	return append([]RimeSwitch(nil), b.schemaSwitches[b.currentSchemaID]...)
 }
 
 func (b *testBackend) SchemaList() []RimeSchema {
@@ -850,6 +897,51 @@ func TestBuildMenuIncludesSchemaSubmenu(t *testing.T) {
 	}
 	if checked, _ := submenu[1]["checked"].(bool); checked {
 		t.Fatalf("expected non-current schema unchecked, got %#v", submenu[1])
+	}
+}
+
+func TestBuildMenuUsesSwitcherSaveOptions(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.saveOptions = []string{"emoji", "full_shape"}
+	backend.schemaSwitches[backend.currentSchemaID] = []RimeSwitch{
+		{Name: "emoji", States: []string{"常规", "Emoji"}},
+		{Name: "full_shape", States: []string{"半角", "全角"}},
+		{Name: "ascii_mode", States: []string{"中文", "西文"}},
+	}
+
+	items := ime.buildMenu()
+	if len(items) < 3 {
+		t.Fatalf("expected switch items in menu, got %#v", items)
+	}
+	if text, _ := items[0]["text"].(string); text != "常规 → Emoji" {
+		t.Fatalf("expected emoji switch from save_options first, got %#v", items[0])
+	}
+	if text, _ := items[1]["text"].(string); text != "半角 → 全角" {
+		t.Fatalf("expected full_shape switch from save_options second, got %#v", items[1])
+	}
+	if _, ok := items[2]["text"].(string); !ok || items[2]["text"] != "" {
+		t.Fatalf("expected separator after dynamic switches, got %#v", items[2])
+	}
+}
+
+func TestOnCommandTogglesDynamicSwitcherOption(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.saveOptions = []string{"emoji"}
+	backend.schemaSwitches[backend.currentSchemaID] = []RimeSwitch{
+		{Name: "emoji", States: []string{"常规", "Emoji"}},
+	}
+
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 99,
+		ID:     imecore.FlexibleID{Int: switchCommandID(0), IsInt: true},
+	}, imecore.NewResponse(99, true))
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected dynamic switch command handled, got %d", resp.ReturnValue)
+	}
+	if !backend.GetOption("emoji") {
+		t.Fatal("expected dynamic switch option toggled on")
 	}
 }
 
