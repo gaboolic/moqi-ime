@@ -265,6 +265,7 @@ func (ime *IME) loadAppearancePrefs() {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
+		ime.saveAppearancePrefs()
 		return
 	}
 	var cfg appearanceConfig
@@ -370,7 +371,7 @@ func (ime *IME) horizontalCandidatePerRow() int {
 	case 3, 5, 7, 9:
 		return ime.style.CandidatePerRow
 	default:
-		return 3
+		return 9
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -132,38 +133,50 @@ type rimeBackend interface {
 }
 
 type IME struct {
+	mu sync.Mutex
 	*imecore.TextServiceBase
-	iconDir            string
-	style              Style
-	selectKeys         string
-	lastKeyDownCode    int
-	lastKeySkip        int
-	lastKeyDownRet     bool
-	lastKeyUpCode      int
-	lastKeyUpRet       bool
-	keyComposing       bool
-	backend            rimeBackend
-	aiEnabled          bool
-	aiActive           bool
-	aiPending          bool
-	aiPrompt           string
-	aiCandidates       []string
-	aiCandidateCursor  int
-	aiError            string
-	aiTriggerPending   bool
-	aiConsumeKeyUpCode int
-	aiPreviousCommit   string
-	aiActions          []aiAction
-	aiCurrentAction    *aiAction
-	aiReviewGenerator  func(aiGenerateRequest) ([]string, error)
-	appearanceVersion  uint64
+	iconDir             string
+	style               Style
+	selectKeys          string
+	lastKeyDownCode     int
+	lastKeySkip         int
+	lastKeyDownRet      bool
+	lastKeyUpCode       int
+	lastKeyUpRet        bool
+	keyComposing        bool
+	backend             rimeBackend
+	aiEnabled           bool
+	aiActive            bool
+	aiPending           bool
+	aiPrompt            string
+	aiCandidates        []string
+	aiCandidateCursor   int
+	aiError             string
+	aiTriggerPending    bool
+	aiConsumeKeyUpCode  int
+	aiPreviousCommit    string
+	aiActions           []aiAction
+	aiCurrentAction     *aiAction
+	aiReviewGenerator   func(aiGenerateRequest) ([]string, error)
+	aiResultCh          chan aiAsyncResult
+	asyncResponseSender func(*imecore.Response)
+	aiRequestSeq        uint64
+	appearanceVersion   uint64
+}
+
+type aiAsyncResult struct {
+	RequestSeq uint64
+	Prompt     string
+	Action     aiAction
+	Candidates []string
+	Err        error
 }
 
 func defaultStyle() Style {
 	return Style{
 		DisplayTrayIcon:             true,
 		CandidateFormat:             "{0} {1}",
-		CandidatePerRow:             3,
+		CandidatePerRow:             1,
 		CandidateCount:              9,
 		CandidateUseCursor:          true,
 		CandidateTheme:              "default",
@@ -190,11 +203,12 @@ func New(client *imecore.Client) imecore.TextService {
 	generator := newConfiguredAIReviewGenerator(cfg)
 	actions := defaultAIActions(cfg)
 	ime := &IME{
-		TextServiceBase: imecore.NewTextServiceBase(client),
-		style:           defaultStyle(),
+		TextServiceBase:   imecore.NewTextServiceBase(client),
+		style:             defaultStyle(),
 		aiEnabled:         generator != nil && len(actions) > 0,
 		aiActions:         actions,
 		aiReviewGenerator: generator,
+		aiResultCh:        make(chan aiAsyncResult, 4),
 	}
 	ime.loadAppearancePrefs()
 	return ime
@@ -211,9 +225,24 @@ func (ime *IME) SetAIReviewGenerator(generator func(aiGenerateRequest) ([]string
 	}
 }
 
+func (ime *IME) SetAsyncResponseSender(sender func(*imecore.Response)) {
+	ime.asyncResponseSender = sender
+}
+
+func (ime *IME) ensureAIResultCh() chan aiAsyncResult {
+	if ime.aiResultCh == nil {
+		ime.aiResultCh = make(chan aiAsyncResult, 4)
+	}
+	return ime.aiResultCh
+}
+
 func (ime *IME) HandleRequest(req *imecore.Request) *imecore.Response {
+	ime.mu.Lock()
+	defer ime.mu.Unlock()
+
 	resp := imecore.NewResponse(req.SeqNum, true)
 	ime.syncAppearancePrefs()
+	ime.consumeAIAsyncResult(resp)
 	ime.consumeBackendNotification(resp)
 	log.Printf("RIME 输入法处理请求 client=%s seq=%d method=%s", ime.Client.ID, req.SeqNum, req.Method)
 
@@ -374,7 +403,13 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 	case ID_SYNC_DIR:
 		ime.openPath(filepath.Join(ime.userDir(), "sync"))
 	case ID_LOG_DIR:
-		ime.openPath(filepath.Join(os.Getenv("LOCALAPPDATA"), APP, "Logs"))
+		logDir := rimeLogDir()
+		if logDir != "" {
+			if err := os.MkdirAll(logDir, 0o755); err != nil {
+				log.Printf("创建 RIME 日志目录失败 %s: %v", logDir, err)
+			}
+		}
+		ime.openPath(logDir)
 	default:
 		previousCandidateCount := ime.candidateCount()
 		if ime.handleSchemaCommand(commandID) {
@@ -550,6 +585,8 @@ func (ime *IME) handleAIKeyUpFilter(req *imecore.Request, resp *imecore.Response
 	if ime.aiConsumeKeyUpCode != 0 && req.KeyCode == ime.aiConsumeKeyUpCode {
 		if ime.aiActive {
 			ime.fillAIResponse(resp)
+		} else {
+			ime.fillResponseFromCurrentState(resp)
 		}
 		resp.ReturnValue = 1
 		return true
@@ -579,14 +616,21 @@ func (ime *IME) handleAIKeyDown(req *imecore.Request, resp *imecore.Response) bo
 	if !ime.aiActive {
 		return false
 	}
+	totalCandidates, aiCandidates := ime.visibleAIOverlayCounts()
 	switch {
 	case ime.isAISelectionKey(req.KeyCode):
 		index := req.KeyCode - 0x31
-		if index >= 0 && index < len(ime.aiCandidates) {
+		if index >= 0 && index < aiCandidates {
 			ime.aiCandidateCursor = index
 			ime.commitAICandidate(resp)
 			resp.ReturnValue = 1
 			return true
+		}
+		if index >= aiCandidates && index < totalCandidates {
+			if ime.commitBackendOverlayCandidate(resp, index-aiCandidates) {
+				resp.ReturnValue = 1
+				return true
+			}
 		}
 		ime.fillAIResponse(resp)
 		resp.ReturnValue = 1
@@ -599,14 +643,23 @@ func (ime *IME) handleAIKeyDown(req *imecore.Request, resp *imecore.Response) bo
 		resp.ReturnValue = 1
 		return true
 	case req.KeyCode == vkDown:
-		if ime.aiCandidateCursor < len(ime.aiCandidates)-1 {
+		if ime.aiCandidateCursor < totalCandidates-1 {
 			ime.aiCandidateCursor++
 		}
 		ime.fillAIResponse(resp)
 		resp.ReturnValue = 1
 		return true
 	case req.KeyCode == vkReturn || req.KeyCode == vkSpace:
-		ime.commitAICandidate(resp)
+		if ime.aiCandidateCursor < aiCandidates {
+			ime.commitAICandidate(resp)
+			resp.ReturnValue = 1
+			return true
+		}
+		if ime.commitBackendOverlayCandidate(resp, ime.aiCandidateCursor-aiCandidates) {
+			resp.ReturnValue = 1
+			return true
+		}
+		ime.fillAIResponse(resp)
 		resp.ReturnValue = 1
 		return true
 	case req.KeyCode == vkEscape:
@@ -627,6 +680,8 @@ func (ime *IME) handleAIKeyUp(req *imecore.Request, resp *imecore.Response) bool
 		ime.aiConsumeKeyUpCode = 0
 		if ime.aiActive {
 			ime.fillAIResponse(resp)
+		} else {
+			ime.fillResponseFromCurrentState(resp)
 		}
 		resp.ReturnValue = 1
 		return true
@@ -674,36 +729,105 @@ func (ime *IME) triggerAIReview(action *aiAction) bool {
 		return false
 	}
 
+	ime.aiRequestSeq++
+	requestSeq := ime.aiRequestSeq
 	ime.aiPending = true
 	ime.aiError = ""
-	generatedCandidates, err := ime.aiReviewGenerator(aiGenerateRequest{
+	ime.aiActive = false
+	ime.aiPrompt = composition
+	ime.aiCandidates = nil
+	ime.aiCandidateCursor = 0
+	ime.aiCurrentAction = nil
+
+	request := aiGenerateRequest{
 		PreviousCommit: ime.aiPreviousCommit,
 		Composition:    composition,
 		Candidates:     inputCandidates,
 		Prompt:         action.Prompt,
-	})
-	ime.aiPending = false
-	if err != nil {
-		ime.aiError = err.Error()
-		log.Printf("AI 写好评失败: %v", err)
-		ime.resetAIState()
-		return false
 	}
-
-	normalized := normalizeAICandidates(generatedCandidates)
-	if len(normalized) == 0 {
-		ime.aiError = "empty AI result"
-		log.Println("AI 写好评失败: 未返回候选")
-		ime.resetAIState()
-		return false
-	}
-
-	ime.aiPrompt = composition
-	ime.aiCandidates = normalized
-	ime.aiCandidateCursor = 0
-	ime.aiCurrentAction = action
-	ime.aiActive = true
+	actionCopy := *action
+	resultCh := ime.ensureAIResultCh()
+	sender := ime.asyncResponseSender
+	go func() {
+		generatedCandidates, err := ime.aiReviewGenerator(request)
+		result := aiAsyncResult{
+			RequestSeq: requestSeq,
+			Prompt:     composition,
+			Action:     actionCopy,
+			Err:        err,
+		}
+		if err == nil {
+			result.Candidates = normalizeAICandidates(generatedCandidates)
+			if len(result.Candidates) == 0 {
+				result.Err = fmt.Errorf("empty AI result")
+			}
+		}
+		if sender != nil {
+			var updateResp *imecore.Response
+			ime.mu.Lock()
+			if ime.applyAIAsyncResult(result) {
+				updateResp = imecore.NewResponse(0, true)
+				ime.fillAIResponse(updateResp)
+				if !updateResp.ShowCandidates && len(updateResp.CandidateList) == 0 && updateResp.CompositionString == "" {
+					updateResp = nil
+				}
+			}
+			ime.mu.Unlock()
+			if updateResp != nil {
+				sender(updateResp)
+			}
+			return
+		}
+		resultCh <- result
+	}()
 	return true
+}
+
+func (ime *IME) applyAIAsyncResult(result aiAsyncResult) bool {
+	if result.RequestSeq != ime.aiRequestSeq {
+		return false
+	}
+	ime.aiPending = false
+	if result.Err != nil {
+		ime.aiError = result.Err.Error()
+		log.Printf("AI 写好评失败: %v", result.Err)
+		ime.resetAIState()
+		return false
+	}
+	ime.aiError = ""
+	ime.aiPrompt = result.Prompt
+	ime.aiCandidates = append([]string(nil), result.Candidates...)
+	ime.aiCandidateCursor = 0
+	ime.aiCurrentAction = &aiAction{
+		Name:    result.Action.Name,
+		Hotkey:  result.Action.Hotkey,
+		Prompt:  result.Action.Prompt,
+		KeyCode: result.Action.KeyCode,
+		Ctrl:    result.Action.Ctrl,
+		Alt:     result.Action.Alt,
+		Shift:   result.Action.Shift,
+	}
+	ime.aiActive = len(ime.aiCandidates) > 0
+	if ime.backend != nil && ime.backendReady() {
+		state := ime.backend.State()
+		if strings.TrimSpace(state.Composition) != strings.TrimSpace(result.Prompt) {
+			ime.resetAIState()
+			return false
+		}
+	}
+	return ime.aiActive
+}
+
+func (ime *IME) consumeAIAsyncResult(resp *imecore.Response) {
+	resultCh := ime.ensureAIResultCh()
+	for {
+		select {
+		case result := <-resultCh:
+			ime.applyAIAsyncResult(result)
+		default:
+			return
+		}
+	}
 }
 
 func collectAICandidateTexts(items []candidateItem, limit int) []string {
@@ -724,23 +848,99 @@ func collectAICandidateTexts(items []candidateItem, limit int) []string {
 	return candidates
 }
 
+func (ime *IME) currentVisibleBackendState() (rimeState, bool) {
+	if ime.backend == nil || !ime.backendReady() {
+		return rimeState{}, false
+	}
+	state := ime.backend.State()
+	visibleCandidateCount := ime.candidateCount()
+	if visibleCandidateCount > 0 && len(state.Candidates) > visibleCandidateCount {
+		state.Candidates = append([]candidateItem(nil), state.Candidates[:visibleCandidateCount]...)
+	}
+	if state.SelectKeys != "" && visibleCandidateCount > 0 && len(state.SelectKeys) > visibleCandidateCount {
+		state.SelectKeys = state.SelectKeys[:visibleCandidateCount]
+	}
+	return state, true
+}
+
+func (ime *IME) visibleAIOverlayCounts() (totalCandidates int, aiCandidates int) {
+	state, ok := ime.currentVisibleBackendState()
+	if !ok {
+		return 0, 0
+	}
+	visibleLimit := ime.candidateCount()
+	if len(ime.aiCandidates) > 0 {
+		aiCandidates = 1
+	}
+	if visibleLimit > 0 && aiCandidates > visibleLimit {
+		aiCandidates = visibleLimit
+	}
+	totalCandidates = aiCandidates + len(state.Candidates)
+	if visibleLimit > 0 && totalCandidates > visibleLimit {
+		totalCandidates = visibleLimit
+	}
+	return totalCandidates, aiCandidates
+}
+
 func (ime *IME) fillAIResponse(resp *imecore.Response) {
 	if resp == nil {
 		return
 	}
-	cursor := utf8.RuneCountInString(ime.aiPrompt)
-	resp.CompositionString = ime.aiPrompt
+	state, ok := ime.currentVisibleBackendState()
+	if !ok {
+		ime.clearResponse(resp)
+		ime.keyComposing = false
+		return
+	}
+	if state.Composition == "" {
+		ime.resetAIState()
+		ime.clearResponse(resp)
+		ime.keyComposing = false
+		return
+	}
+	if strings.TrimSpace(ime.aiPrompt) != "" && strings.TrimSpace(state.Composition) != strings.TrimSpace(ime.aiPrompt) {
+		ime.resetAIState()
+		ime.fillResponseFromBackendState(resp, false)
+		return
+	}
+	cursor := state.CursorPos
+	resp.CompositionString = state.Composition
 	resp.CursorPos = cursor
 	resp.CompositionCursor = cursor
-	resp.SelStart = 0
-	resp.SelEnd = cursor
-	resp.CandidateList = append([]string(nil), ime.aiCandidates...)
-	resp.CandidateCursor = ime.aiCandidateCursor
-	resp.ShowCandidates = len(ime.aiCandidates) > 0
-	if aiSelectKeys != ime.selectKeys {
-		resp.SetSelKeys = aiSelectKeys
-		ime.selectKeys = aiSelectKeys
+	resp.SelStart = state.SelStart
+	resp.SelEnd = state.SelEnd
+
+	combined := make([]string, 0, 1+len(state.Candidates))
+	if len(ime.aiCandidates) > 0 {
+		combined = append(combined, ime.aiCandidates[0])
 	}
+	combined = append(combined, ime.formatCandidates(state.Candidates)...)
+	visibleCandidateCount := ime.candidateCount()
+	if visibleCandidateCount > 0 && len(combined) > visibleCandidateCount {
+		combined = combined[:visibleCandidateCount]
+	}
+	resp.CandidateList = combined
+	if len(combined) == 0 {
+		resp.CandidateCursor = 0
+		resp.ShowCandidates = false
+	} else {
+		if ime.aiCandidateCursor < 0 {
+			ime.aiCandidateCursor = 0
+		}
+		if ime.aiCandidateCursor >= len(combined) {
+			ime.aiCandidateCursor = len(combined) - 1
+		}
+		resp.CandidateCursor = ime.aiCandidateCursor
+		resp.ShowCandidates = true
+		if len(combined) <= len(aiSelectKeys) {
+			selKeys := aiSelectKeys[:len(combined)]
+			if selKeys != ime.selectKeys {
+				resp.SetSelKeys = selKeys
+				ime.selectKeys = selKeys
+			}
+		}
+	}
+	ime.keyComposing = true
 }
 
 func (ime *IME) commitAICandidate(resp *imecore.Response) {
@@ -759,7 +959,23 @@ func (ime *IME) commitAICandidate(resp *imecore.Response) {
 	}
 }
 
+func (ime *IME) commitBackendOverlayCandidate(resp *imecore.Response, backendIndex int) bool {
+	if resp == nil || backendIndex < 0 || backendIndex >= 9 {
+		return false
+	}
+	req := &imecore.Request{
+		KeyCode:   int('1') + backendIndex,
+		CharCode:  int('1') + backendIndex,
+		KeyStates: make(imecore.KeyStates, 256),
+	}
+	ime.resetAIState()
+	_ = ime.processKey(req, false)
+	resp.ReturnValue = boolToInt(ime.onKey(req, resp))
+	return true
+}
+
 func (ime *IME) resetAIState() {
+	ime.aiRequestSeq++
 	ime.aiActive = false
 	ime.aiPending = false
 	ime.aiPrompt = ""
@@ -1025,18 +1241,11 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 	if resp == nil {
 		return true
 	}
-	if ime.backend == nil || !ime.backendReady() {
+	state, ok := ime.currentVisibleBackendState()
+	if !ok {
 		ime.clearResponse(resp)
 		ime.keyComposing = false
 		return false
-	}
-	state := ime.backend.State()
-	visibleCandidateCount := ime.candidateCount()
-	if visibleCandidateCount > 0 && len(state.Candidates) > visibleCandidateCount {
-		state.Candidates = append([]candidateItem(nil), state.Candidates[:visibleCandidateCount]...)
-	}
-	if state.SelectKeys != "" && visibleCandidateCount > 0 && len(state.SelectKeys) > visibleCandidateCount {
-		state.SelectKeys = state.SelectKeys[:visibleCandidateCount]
 	}
 	if allowCommit && state.CommitString != "" {
 		resp.CommitString = state.CommitString
@@ -1410,6 +1619,14 @@ func (ime *IME) userDir() string {
 		return ""
 	}
 	return filepath.Join(appData, APP, "Rime")
+}
+
+func rimeLogDir() string {
+	localAppData := os.Getenv("LOCALAPPDATA")
+	if localAppData == "" {
+		return ""
+	}
+	return filepath.Join(localAppData, "MoqiIM", "Log")
 }
 
 func (ime *IME) openPath(path string) {

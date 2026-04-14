@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gaboolic/moqi-ime/imecore"
 )
@@ -38,11 +39,22 @@ func (b *fakeBackend) ClearComposition() {
 
 func (b *fakeBackend) ProcessKey(req *imecore.Request, translatedKeyCode, modifiers int) bool {
 	b.processKeyN++
+	if req != nil && req.KeyCode >= '1' && req.KeyCode <= '9' {
+		index := req.KeyCode - '1'
+		if index >= 0 && index < len(b.state.Candidates) {
+			b.state.CommitString = b.state.Candidates[index].Text
+			b.state.Composition = ""
+			b.state.Candidates = nil
+			return true
+		}
+	}
 	return false
 }
 
 func (b *fakeBackend) State() rimeState {
-	return b.state
+	state := b.state
+	b.state.CommitString = ""
+	return state
 }
 
 func (b *fakeBackend) SetOption(name string, value bool) {}
@@ -81,6 +93,19 @@ func keyStatesWithDown(keys ...int) imecore.KeyStates {
 	return states
 }
 
+func waitForAIAsyncCompletion(t *testing.T, ime *IME) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		ime.consumeAIAsyncResult(nil)
+		if !ime.aiPending {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for AI async completion")
+}
+
 func TestAIHotkeyShowsGeneratedCandidates(t *testing.T) {
 	backend := &fakeBackend{
 		state: rimeState{
@@ -91,6 +116,8 @@ func TestAIHotkeyShowsGeneratedCandidates(t *testing.T) {
 		},
 	}
 	ime := newTestIMEWithBackend(backend)
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
 	ime.SetAIReviewGenerator(func(input aiGenerateRequest) ([]string, error) {
 		if input.Composition != "咖啡机" {
 			t.Fatalf("unexpected AI composition: %q", input.Composition)
@@ -101,6 +128,8 @@ func TestAIHotkeyShowsGeneratedCandidates(t *testing.T) {
 		if !strings.Contains(input.Prompt, "{{candidate_1}}") {
 			t.Fatalf("expected configured prompt template, got %q", input.Prompt)
 		}
+		started <- struct{}{}
+		<-release
 		return []string{
 			"做出来的咖啡香气很足，口感顺滑。",
 			"操作简单，早上出门前也能快速来一杯。",
@@ -119,6 +148,7 @@ func TestAIHotkeyShowsGeneratedCandidates(t *testing.T) {
 	if backend.processKeyN != 0 {
 		t.Fatalf("expected AI hotkey to bypass backend.ProcessKey, got %d calls", backend.processKeyN)
 	}
+	<-started
 
 	keyResp := ime.HandleRequest(&imecore.Request{
 		Method:    "onKeyDown",
@@ -129,17 +159,56 @@ func TestAIHotkeyShowsGeneratedCandidates(t *testing.T) {
 	if keyResp.CompositionString != "咖啡机" {
 		t.Fatalf("expected original composition to stay visible, got %#v", keyResp.CompositionString)
 	}
-	if keyResp.ShowCandidates != true {
-		t.Fatalf("expected AI candidates to be shown, got %#v", keyResp)
+	if keyResp.ShowCandidates != true || len(keyResp.CandidateList) != 1 || keyResp.CandidateList[0] != "咖啡机" {
+		t.Fatalf("expected pending AI request to keep backend candidates visible, got %#v", keyResp)
 	}
-	if len(keyResp.CandidateList) != 2 {
-		t.Fatalf("expected 2 AI candidates, got %#v", keyResp.CandidateList)
+	if ime.aiActive {
+		t.Fatal("expected AI overlay to remain inactive while request is pending")
 	}
-	if keyResp.CandidateList[0] != "做出来的咖啡香气很足，口感顺滑。" {
-		t.Fatalf("unexpected first AI candidate: %#v", keyResp.CandidateList[0])
+
+	filterKeyUpResp := ime.HandleRequest(&imecore.Request{
+		Method:  "filterKeyUp",
+		SeqNum:  3,
+		KeyCode: aiHotkeyKeyCode,
+	})
+	if filterKeyUpResp.ReturnValue != 1 {
+		t.Fatalf("expected pending AI key-up filter to be handled, got %#v", filterKeyUpResp)
 	}
-	if keyResp.SetSelKeys != aiSelectKeys {
-		t.Fatalf("expected AI select keys %q, got %q", aiSelectKeys, keyResp.SetSelKeys)
+	if filterKeyUpResp.CompositionString != "咖啡机" || !filterKeyUpResp.ShowCandidates || len(filterKeyUpResp.CandidateList) != 1 {
+		t.Fatalf("expected pending AI key-up filter to preserve backend candidates, got %#v", filterKeyUpResp)
+	}
+
+	keyUpResp := ime.HandleRequest(&imecore.Request{
+		Method:  "onKeyUp",
+		SeqNum:  4,
+		KeyCode: aiHotkeyKeyCode,
+	})
+	if keyUpResp.ReturnValue != 1 {
+		t.Fatalf("expected pending AI key-up to be handled, got %#v", keyUpResp)
+	}
+	if keyUpResp.CompositionString != "咖啡机" || !keyUpResp.ShowCandidates || len(keyUpResp.CandidateList) != 1 {
+		t.Fatalf("expected pending AI key-up to preserve backend candidates, got %#v", keyUpResp)
+	}
+
+	close(release)
+	waitForAIAsyncCompletion(t, ime)
+
+	showResp := imecore.NewResponse(5, true)
+	ime.fillAIResponse(showResp)
+	if showResp.CompositionString != "咖啡机" {
+		t.Fatalf("expected original composition to stay visible, got %#v", showResp.CompositionString)
+	}
+	if !showResp.ShowCandidates {
+		t.Fatalf("expected merged candidates to be shown, got %#v", showResp)
+	}
+	if len(showResp.CandidateList) != 2 {
+		t.Fatalf("expected AI candidates to be prepended, got %#v", showResp.CandidateList)
+	}
+	if showResp.CandidateList[0] != "做出来的咖啡香气很足，口感顺滑。" || showResp.CandidateList[1] != "咖啡机" {
+		t.Fatalf("unexpected merged AI candidates: %#v", showResp.CandidateList)
+	}
+	if showResp.SetSelKeys != "12" {
+		t.Fatalf("expected merged select keys %q, got %q", "12", showResp.SetSelKeys)
 	}
 }
 
@@ -181,8 +250,17 @@ func TestAIHotkeyPassesTopThreeCandidatesToGenerator(t *testing.T) {
 		KeyCode:   aiHotkeyKeyCode,
 		KeyStates: keyStatesWithDown(vkControl, vkShift),
 	})
-	if keyResp.ShowCandidates != true || len(keyResp.CandidateList) != 1 {
-		t.Fatalf("expected generated AI candidate, got %#v", keyResp)
+	if !keyResp.ShowCandidates {
+		t.Fatalf("expected backend candidates while AI is pending, got %#v", keyResp)
+	}
+	waitForAIAsyncCompletion(t, ime)
+	showResp := imecore.NewResponse(3, true)
+	ime.fillAIResponse(showResp)
+	if showResp.ShowCandidates != true || len(showResp.CandidateList) != 5 {
+		t.Fatalf("expected generated AI candidate prepended to backend list, got %#v", showResp)
+	}
+	if showResp.CandidateList[0] != "咖啡机很好用，体验很顺手。" {
+		t.Fatalf("expected AI candidate first, got %#v", showResp.CandidateList)
 	}
 }
 
@@ -217,8 +295,17 @@ func TestAIHotkeyPassesPreviousCommitToGenerator(t *testing.T) {
 		KeyCode:   aiHotkeyKeyCode,
 		KeyStates: keyStatesWithDown(vkControl, vkShift),
 	})
-	if keyResp.ShowCandidates != true || len(keyResp.CandidateList) != 1 {
-		t.Fatalf("expected generated AI candidate, got %#v", keyResp)
+	if !keyResp.ShowCandidates {
+		t.Fatalf("expected backend candidates while AI is pending, got %#v", keyResp)
+	}
+	waitForAIAsyncCompletion(t, ime)
+	showResp := imecore.NewResponse(3, true)
+	ime.fillAIResponse(showResp)
+	if showResp.ShowCandidates != true || len(showResp.CandidateList) != 3 {
+		t.Fatalf("expected generated AI candidate prepended to backend list, got %#v", showResp)
+	}
+	if showResp.CandidateList[0] != "糖空传声让孩子提着碗" {
+		t.Fatalf("expected AI candidate first, got %#v", showResp.CandidateList)
 	}
 }
 
@@ -248,6 +335,7 @@ func TestAIHotkeyKeyUpKeepsGeneratedCandidatesVisible(t *testing.T) {
 		KeyCode:   aiHotkeyKeyCode,
 		KeyStates: keyStatesWithDown(vkControl, vkShift),
 	})
+	waitForAIAsyncCompletion(t, ime)
 
 	filterResp := ime.HandleRequest(&imecore.Request{
 		Method:  "filterKeyUp",
@@ -257,8 +345,11 @@ func TestAIHotkeyKeyUpKeepsGeneratedCandidatesVisible(t *testing.T) {
 	if filterResp.ReturnValue != 1 {
 		t.Fatalf("expected AI hotkey key-up to be handled, got %#v", filterResp)
 	}
-	if filterResp.ShowCandidates != true || len(filterResp.CandidateList) != 2 {
+	if filterResp.ShowCandidates != true || len(filterResp.CandidateList) != 1 {
 		t.Fatalf("expected AI candidates to stay visible on filterKeyUp, got %#v", filterResp)
+	}
+	if filterResp.CandidateList[0] != "操作简单，打出来的咖啡很香。" {
+		t.Fatalf("expected AI candidate to stay first on filterKeyUp, got %#v", filterResp.CandidateList)
 	}
 	if ime.aiConsumeKeyUpCode != aiHotkeyKeyCode {
 		t.Fatalf("expected key-up code to stay pending until onKeyUp, got %d", ime.aiConsumeKeyUpCode)
@@ -272,8 +363,11 @@ func TestAIHotkeyKeyUpKeepsGeneratedCandidatesVisible(t *testing.T) {
 	if keyUpResp.ReturnValue != 1 {
 		t.Fatalf("expected AI hotkey onKeyUp to be handled, got %#v", keyUpResp)
 	}
-	if keyUpResp.ShowCandidates != true || len(keyUpResp.CandidateList) != 2 {
+	if keyUpResp.ShowCandidates != true || len(keyUpResp.CandidateList) != 1 {
 		t.Fatalf("expected AI candidates to stay visible on onKeyUp, got %#v", keyUpResp)
+	}
+	if keyUpResp.CandidateList[0] != "操作简单，打出来的咖啡很香。" {
+		t.Fatalf("expected AI candidate to stay first on onKeyUp, got %#v", keyUpResp.CandidateList)
 	}
 	if ime.aiConsumeKeyUpCode != 0 {
 		t.Fatalf("expected key-up code to be cleared after onKeyUp, got %d", ime.aiConsumeKeyUpCode)
@@ -304,11 +398,12 @@ func TestAISelectionCommitsCandidateAndClearsComposition(t *testing.T) {
 		KeyCode:   aiHotkeyKeyCode,
 		KeyStates: keyStatesWithDown(vkControl, vkShift),
 	})
+	waitForAIAsyncCompletion(t, ime)
 
 	filterResp := ime.HandleRequest(&imecore.Request{
 		Method:  "filterKeyDown",
 		SeqNum:  3,
-		KeyCode: 0x32,
+		KeyCode: 0x31,
 	})
 	if filterResp.ReturnValue != 1 {
 		t.Fatalf("expected AI candidate selection key to be handled, got %#v", filterResp)
@@ -317,10 +412,10 @@ func TestAISelectionCommitsCandidateAndClearsComposition(t *testing.T) {
 	keyResp := ime.HandleRequest(&imecore.Request{
 		Method:  "onKeyDown",
 		SeqNum:  4,
-		KeyCode: 0x32,
+		KeyCode: 0x31,
 	})
-	if keyResp.CommitString != "萃取稳定，清洗也方便，很适合家用。" {
-		t.Fatalf("expected second AI candidate to commit, got %#v", keyResp.CommitString)
+	if keyResp.CommitString != "香味浓郁，整体体验超出预期。" {
+		t.Fatalf("expected first AI candidate to commit, got %#v", keyResp.CommitString)
 	}
 	if keyResp.ShowCandidates != false {
 		t.Fatalf("expected AI candidate window to close, got %#v", keyResp)
@@ -357,6 +452,7 @@ func TestAISpaceCommitsCurrentCandidateAndClearsComposition(t *testing.T) {
 		KeyCode:   aiHotkeyKeyCode,
 		KeyStates: keyStatesWithDown(vkControl, vkShift),
 	})
+	waitForAIAsyncCompletion(t, ime)
 
 	filterResp := ime.HandleRequest(&imecore.Request{
 		Method:  "filterKeyDown",
@@ -383,6 +479,66 @@ func TestAISpaceCommitsCurrentCandidateAndClearsComposition(t *testing.T) {
 	}
 	if ime.aiActive {
 		t.Fatal("expected AI mode to end after space commit")
+	}
+}
+
+func TestAIOverlayShiftsBackendCandidatesAndAllowsSelectingThem(t *testing.T) {
+	backend := &fakeBackend{
+		state: rimeState{
+			Composition: "咖啡机",
+			Candidates: []candidateItem{
+				{Text: "原候选一"},
+				{Text: "原候选二"},
+			},
+		},
+	}
+	ime := newTestIMEWithBackend(backend)
+	ime.SetAIReviewGenerator(func(input aiGenerateRequest) ([]string, error) {
+		return []string{"AI 置顶候选"}, nil
+	})
+
+	ime.HandleRequest(&imecore.Request{
+		Method:    "filterKeyDown",
+		SeqNum:    1,
+		KeyCode:   aiHotkeyKeyCode,
+		KeyStates: keyStatesWithDown(vkControl, vkShift),
+	})
+	ime.HandleRequest(&imecore.Request{
+		Method:    "onKeyDown",
+		SeqNum:    2,
+		KeyCode:   aiHotkeyKeyCode,
+		KeyStates: keyStatesWithDown(vkControl, vkShift),
+	})
+	waitForAIAsyncCompletion(t, ime)
+
+	showResp := imecore.NewResponse(3, true)
+	ime.fillAIResponse(showResp)
+	if len(showResp.CandidateList) != 3 {
+		t.Fatalf("expected AI candidate plus shifted backend candidates, got %#v", showResp.CandidateList)
+	}
+	if showResp.CandidateList[0] != "AI 置顶候选" || showResp.CandidateList[1] != "原候选一" || showResp.CandidateList[2] != "原候选二" {
+		t.Fatalf("unexpected shifted candidate order: %#v", showResp.CandidateList)
+	}
+
+	filterResp := ime.HandleRequest(&imecore.Request{
+		Method:  "filterKeyDown",
+		SeqNum:  4,
+		KeyCode: '2',
+	})
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected shifted backend candidate selection key to be handled, got %#v", filterResp)
+	}
+
+	keyResp := ime.HandleRequest(&imecore.Request{
+		Method:  "onKeyDown",
+		SeqNum:  5,
+		KeyCode: '2',
+	})
+	if keyResp.CommitString != "原候选一" {
+		t.Fatalf("expected shifted backend candidate to commit original first candidate, got %#v", keyResp.CommitString)
+	}
+	if ime.aiActive {
+		t.Fatal("expected AI overlay to end after selecting backend candidate")
 	}
 }
 
@@ -418,14 +574,20 @@ func TestAIHotkeyFailureFallsBackToOriginalComposition(t *testing.T) {
 		KeyCode:   aiHotkeyKeyCode,
 		KeyStates: keyStatesWithDown(vkControl, vkShift),
 	})
-	if keyResp.CompositionString != "咖啡机" {
-		t.Fatalf("expected fallback composition to remain visible, got %#v", keyResp.CompositionString)
+	if keyResp.CompositionString != "咖啡机" || !keyResp.ShowCandidates || len(keyResp.CandidateList) != 2 {
+		t.Fatalf("expected backend candidates to remain visible while AI is pending, got %#v", keyResp)
 	}
-	if keyResp.ShowCandidates != true {
-		t.Fatalf("expected fallback candidates from backend, got %#v", keyResp)
+	waitForAIAsyncCompletion(t, ime)
+	keyUpResp := ime.HandleRequest(&imecore.Request{
+		Method:  "onKeyUp",
+		SeqNum:  3,
+		KeyCode: aiHotkeyKeyCode,
+	})
+	if keyUpResp.CompositionString != "咖啡机" {
+		t.Fatalf("expected fallback composition to remain visible, got %#v", keyUpResp.CompositionString)
 	}
-	if len(keyResp.CandidateList) != 2 {
-		t.Fatalf("expected fallback candidate list, got %#v", keyResp.CandidateList)
+	if !keyUpResp.ShowCandidates || len(keyUpResp.CandidateList) != 2 {
+		t.Fatalf("expected fallback candidate list, got %#v", keyUpResp.CandidateList)
 	}
 	if ime.aiActive {
 		t.Fatal("expected AI mode to remain inactive on failure")

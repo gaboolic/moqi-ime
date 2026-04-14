@@ -289,7 +289,7 @@ func newTestIME() *IME {
 	return &IME{
 		TextServiceBase: imecore.NewTextServiceBase(&imecore.Client{ID: "test-client"}),
 		style:           defaultStyle(),
-		backend: newTestBackend(),
+		backend:         newTestBackend(),
 	}
 }
 
@@ -312,8 +312,8 @@ func TestNewInitialState(t *testing.T) {
 	if len(backend.candidates) != 0 {
 		t.Fatalf("expected no candidates, got %v", backend.candidates)
 	}
-	if ime.style.CandidatePerRow != 3 {
-		t.Fatalf("expected horizontal layout by default, got CandidatePerRow=%d", ime.style.CandidatePerRow)
+	if ime.style.CandidatePerRow != 1 {
+		t.Fatalf("expected vertical layout by default, got CandidatePerRow=%d", ime.style.CandidatePerRow)
 	}
 	if ime.style.CandidateTheme != "default" || ime.style.FontPoint != 20 {
 		t.Fatalf("expected default theme defaults, got theme=%q font=%d", ime.style.CandidateTheme, ime.style.FontPoint)
@@ -859,8 +859,8 @@ func TestApplyAppearanceCommandChangesCandidateLayout(t *testing.T) {
 	if !ime.applyAppearanceCommand(ID_APPEARANCE_LAYOUT_HORIZONTAL) {
 		t.Fatal("expected horizontal layout command handled")
 	}
-	if ime.style.CandidatePerRow != 3 {
-		t.Fatalf("expected horizontal layout to default to 3 per row, got %d", ime.style.CandidatePerRow)
+	if ime.style.CandidatePerRow != 9 {
+		t.Fatalf("expected horizontal layout to default to 9 per row, got %d", ime.style.CandidatePerRow)
 	}
 
 	if !ime.applyAppearanceCommand(ID_APPEARANCE_PER_ROW_5) {
@@ -1451,6 +1451,60 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	}
 	if reloaded.style.CandidateTheme != "custom" {
 		t.Fatalf("expected reloaded theme custom for custom colors, got %q", reloaded.style.CandidateTheme)
+	}
+}
+
+func TestLoadAppearancePrefsCreatesDefaultConfigWhenMissing(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetSharedAppearanceConfigForTest()
+
+	ime := newTestIME()
+	ime.loadAppearancePrefs()
+
+	configPath := filepath.Join(appData, APP, "Rime", appearanceConfigFileName)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("expected default appearance config written to disk: %v", err)
+	}
+
+	var persisted map[string]any
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatalf("expected valid appearance config json: %v", err)
+	}
+	if got := persisted["candidate_per_row"]; got != float64(1) {
+		t.Fatalf("expected persisted candidate_per_row 1 for vertical default, got %#v", got)
+	}
+	if got := persisted["candidate_count"]; got != float64(9) {
+		t.Fatalf("expected persisted candidate_count 9, got %#v", got)
+	}
+	if got := persisted["font_point"]; got != float64(20) {
+		t.Fatalf("expected persisted font_point 20, got %#v", got)
+	}
+	if got := persisted["candidate_theme"]; got != "default" {
+		t.Fatalf("expected persisted candidate_theme default, got %#v", got)
+	}
+	if ime.style.CandidatePerRow != 1 {
+		t.Fatalf("expected in-memory style to stay vertical by default, got %d", ime.style.CandidatePerRow)
+	}
+}
+
+func TestRimeLogDirUsesMoqiIMLogUnderLocalAppData(t *testing.T) {
+	localAppData := t.TempDir()
+	t.Setenv("LOCALAPPDATA", localAppData)
+
+	got := rimeLogDir()
+	want := filepath.Join(localAppData, "MoqiIM", "Log")
+	if got != want {
+		t.Fatalf("expected rime log dir %q, got %q", want, got)
+	}
+}
+
+func TestRimeLogDirReturnsEmptyWithoutLocalAppData(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", "")
+
+	if got := rimeLogDir(); got != "" {
+		t.Fatalf("expected empty rime log dir when LOCALAPPDATA unset, got %q", got)
 	}
 }
 

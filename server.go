@@ -36,9 +36,14 @@ type Client struct {
 // ServiceFactory 服务工厂函数
 type ServiceFactory func(client *imecore.Client, guid string) imecore.TextService
 
+type asyncResponseSender interface {
+	SetAsyncResponseSender(func(*imecore.Response))
+}
+
 // Server Moqi 服务器
 type Server struct {
 	mu        sync.RWMutex
+	writeMu   sync.Mutex
 	clients   map[string]*Client
 	factories map[string]ServiceFactory // guid -> factory
 	reader    *bufio.Reader
@@ -201,6 +206,24 @@ func (s *Server) handleRequest(clientID string, req *imecore.Request) *imecore.R
 			IsConsole:       req.IsConsole,
 		}
 		client.Service = factory(moqiClient, guid)
+		if sender, ok := client.Service.(asyncResponseSender); ok {
+			sender.SetAsyncResponseSender(func(resp *imecore.Response) {
+				if resp == nil {
+					return
+				}
+				respCopy := *resp
+				respCopy.SeqNum = 0
+				s.mu.RLock()
+				_, exists := s.clients[clientID]
+				s.mu.RUnlock()
+				if !exists {
+					return
+				}
+				if err := s.sendResponse(clientID, &respCopy); err != nil {
+					log.Printf("发送异步响应失败 client=%s err=%v", clientID, err)
+				}
+			})
+		}
 		s.clients[clientID] = client
 
 		// 初始化服务
@@ -248,6 +271,9 @@ func (s *Server) handleRequest(clientID string, req *imecore.Request) *imecore.R
 
 // sendResponse 发送响应
 func (s *Server) sendResponse(clientID string, resp *imecore.Response) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	logResponseSummary(clientID, resp)
 	msg, err := imecore.BuildProtoResponse(clientID, resp)
 	if err != nil {

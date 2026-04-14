@@ -638,6 +638,14 @@ func RimeInit(datadir, userdir, appname, appver string, fullcheck bool) bool {
 	}
 	log.Printf("RIME RimeInit 加载DLL完成 elapsed=%s dllPath=%q", time.Since(dllStart), dllPath)
 
+	logDir := rimeLogDir()
+	if logDir != "" {
+		if err := os.MkdirAll(logDir, 0o755); err != nil {
+			log.Printf("创建 RIME 日志目录失败: %v", err)
+			logDir = ""
+		}
+	}
+
 	traits := RimeTraits{
 		SharedDataDir:        datadir,
 		UserDataDir:          userdir,
@@ -645,6 +653,7 @@ func RimeInit(datadir, userdir, appname, appver string, fullcheck bool) bool {
 		DistributionCodeName: appname,
 		DistributionVersion:  appver,
 		AppName:              fmt.Sprintf("Rime.%s", appname),
+		LogDir:               logDir,
 		PrebuiltDataDir:      filepath.Join(datadir, "build"),
 		StagingDir:           filepath.Join(userdir, "build"),
 	}
@@ -658,6 +667,14 @@ func RimeInit(datadir, userdir, appname, appver string, fullcheck bool) bool {
 }
 
 func RimeRedeploy(datadir, userdir, appname, appver string) bool {
+	logDir := rimeLogDir()
+	if logDir != "" {
+		if err := os.MkdirAll(logDir, 0o755); err != nil {
+			log.Printf("创建 RIME 日志目录失败: %v", err)
+			logDir = ""
+		}
+	}
+
 	traits := RimeTraits{
 		SharedDataDir:        datadir,
 		UserDataDir:          userdir,
@@ -665,6 +682,7 @@ func RimeRedeploy(datadir, userdir, appname, appver string) bool {
 		DistributionCodeName: appname,
 		DistributionVersion:  appver,
 		AppName:              fmt.Sprintf("Rime.%s", appname),
+		LogDir:               logDir,
 		PrebuiltDataDir:      filepath.Join(datadir, "build"),
 		StagingDir:           filepath.Join(userdir, "build"),
 	}
