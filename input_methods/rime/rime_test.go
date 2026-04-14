@@ -1056,6 +1056,7 @@ func TestOnCommandCandidateCountUsesRuntimePageSizeWhenAvailable(t *testing.T) {
 func TestBuildMenuIncludesCandidateLayoutSubmenus(t *testing.T) {
 	ime := newIsolatedTestIME(t)
 	ime.style.CandidatePerRow = 5
+	ime.style.CandidateCommentFontPoint = 18
 
 	items := ime.buildMenu()
 	var appearanceMenu map[string]interface{}
@@ -1077,6 +1078,7 @@ func TestBuildMenuIncludesCandidateLayoutSubmenus(t *testing.T) {
 
 	var layoutMenu map[string]interface{}
 	var perRowMenu map[string]interface{}
+	var commentFontMenu map[string]interface{}
 	for _, item := range submenu {
 		text, _ := item["text"].(string)
 		if text == "候选排列" {
@@ -1085,8 +1087,11 @@ func TestBuildMenuIncludesCandidateLayoutSubmenus(t *testing.T) {
 		if text == "每行候选数" {
 			perRowMenu = item
 		}
+		if text == "注释文字大小" {
+			commentFontMenu = item
+		}
 	}
-	if layoutMenu == nil || perRowMenu == nil {
+	if layoutMenu == nil || perRowMenu == nil || commentFontMenu == nil {
 		t.Fatalf("expected layout menus, got %#v", submenu)
 	}
 
@@ -1107,6 +1112,14 @@ func TestBuildMenuIncludesCandidateLayoutSubmenus(t *testing.T) {
 	}
 	if enabled, _ := perRowMenu["enabled"].(bool); !enabled {
 		t.Fatalf("expected per-row menu enabled in horizontal mode, got %#v", perRowMenu)
+	}
+
+	commentFontItems, ok := commentFontMenu["submenu"].([]map[string]interface{})
+	if !ok || len(commentFontItems) != 5 {
+		t.Fatalf("expected 5 comment font items, got %#v", commentFontMenu["submenu"])
+	}
+	if checked, _ := commentFontItems[2]["checked"].(bool); !checked {
+		t.Fatalf("expected comment font 18 checked, got %#v", commentFontItems[2])
 	}
 }
 
@@ -1255,7 +1268,7 @@ func TestFillResponseFromBackendStateAppliesCandidateCount(t *testing.T) {
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
 	backend.candidates = []candidateItem{
-		{Text: "你"},
+		{Text: "你", Comment: "pron"},
 		{Text: "呢"},
 		{Text: "泥"},
 		{Text: "尼"},
@@ -1268,6 +1281,12 @@ func TestFillResponseFromBackendStateAppliesCandidateCount(t *testing.T) {
 
 	if len(resp.CandidateList) != 5 {
 		t.Fatalf("expected 5 candidates after truncation, got %#v", resp.CandidateList)
+	}
+	if len(resp.CandidateEntries) != 5 {
+		t.Fatalf("expected 5 candidate entries after truncation, got %#v", resp.CandidateEntries)
+	}
+	if resp.CandidateEntries[0].Text != "你" || resp.CandidateEntries[0].Comment != "pron" {
+		t.Fatalf("expected first candidate entry to preserve comment, got %#v", resp.CandidateEntries[0])
 	}
 	if resp.SetSelKeys != "12345" {
 		t.Fatalf("expected select keys truncated to 12345, got %q", resp.SetSelKeys)
@@ -1370,6 +1389,9 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	if !ime.applyAppearanceCommand(ID_APPEARANCE_FONT_22) {
 		t.Fatal("expected font size command handled")
 	}
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_COMMENT_FONT_18) {
+		t.Fatal("expected comment font size command handled")
+	}
 	if !ime.applyAppearanceCommand(ID_APPEARANCE_LAYOUT_HORIZONTAL) {
 		t.Fatal("expected layout command handled")
 	}
@@ -1405,6 +1427,9 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	if got := persisted["font_point"]; got != float64(22) {
 		t.Fatalf("expected persisted font_point 22, got %#v", got)
 	}
+	if got := persisted["candidate_comment_font_point"]; got != float64(18) {
+		t.Fatalf("expected persisted candidate_comment_font_point 18, got %#v", got)
+	}
 	if got := persisted["candidate_per_row"]; got != float64(7) {
 		t.Fatalf("expected persisted candidate_per_row 7, got %#v", got)
 	}
@@ -1430,6 +1455,9 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 
 	if reloaded.style.FontPoint != 22 {
 		t.Fatalf("expected reloaded font size 22, got %d", reloaded.style.FontPoint)
+	}
+	if reloaded.style.CandidateCommentFontPoint != 18 {
+		t.Fatalf("expected reloaded comment font size 18, got %d", reloaded.style.CandidateCommentFontPoint)
 	}
 	if reloaded.style.CandidatePerRow != 7 {
 		t.Fatalf("expected reloaded per-row 7, got %d", reloaded.style.CandidatePerRow)

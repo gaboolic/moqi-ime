@@ -39,6 +39,11 @@ const (
 	ID_APPEARANCE_FONT_18             = 112
 	ID_APPEARANCE_FONT_20             = 113
 	ID_APPEARANCE_FONT_22             = 114
+	ID_APPEARANCE_COMMENT_FONT_14     = 115
+	ID_APPEARANCE_COMMENT_FONT_16     = 116
+	ID_APPEARANCE_COMMENT_FONT_18     = 117
+	ID_APPEARANCE_COMMENT_FONT_20     = 118
+	ID_APPEARANCE_COMMENT_FONT_22     = 119
 	ID_APPEARANCE_BG_WHITE            = 120
 	ID_APPEARANCE_BG_WARM             = 121
 	ID_APPEARANCE_BG_BLUE             = 122
@@ -93,6 +98,7 @@ type Style struct {
 	CandidateHighlightTextColor string
 	FontFace                    string
 	FontPoint                   int
+	CandidateCommentFontPoint   int
 	InlinePreedit               string
 	SoftCursor                  bool
 }
@@ -186,6 +192,7 @@ func defaultStyle() Style {
 		CandidateHighlightTextColor: "#000000",
 		FontFace:                    "Segoe UI",
 		FontPoint:                   20,
+		CandidateCommentFontPoint:   20,
 		InlinePreedit:               "composition",
 		SoftCursor:                  false,
 	}
@@ -1233,6 +1240,7 @@ func (ime *IME) clearResponse(resp *imecore.Response) {
 	resp.CursorPos = 0
 	resp.CompositionCursor = 0
 	resp.CandidateList = []string{}
+	resp.CandidateEntries = []imecore.CandidateEntry{}
 	resp.CandidateCursor = 0
 	resp.ShowCandidates = false
 }
@@ -1267,6 +1275,7 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 	resp.SelEnd = state.SelEnd
 	if len(state.Candidates) > 0 {
 		resp.CandidateList = ime.formatCandidates(state.Candidates)
+		resp.CandidateEntries = ime.candidateEntries(state.Candidates)
 		if state.CandidateCursor < 0 {
 			resp.CandidateCursor = 0
 		} else if state.CandidateCursor >= len(state.Candidates) {
@@ -1277,6 +1286,7 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 		resp.ShowCandidates = true
 	} else {
 		resp.CandidateList = []string{}
+		resp.CandidateEntries = []imecore.CandidateEntry{}
 		resp.CandidateCursor = 0
 		resp.ShowCandidates = false
 	}
@@ -1466,6 +1476,17 @@ func (ime *IME) formatCandidates(candidates []candidateItem) []string {
 	return formatted
 }
 
+func (ime *IME) candidateEntries(candidates []candidateItem) []imecore.CandidateEntry {
+	entries := make([]imecore.CandidateEntry, 0, len(candidates))
+	for _, candidate := range candidates {
+		entries = append(entries, imecore.CandidateEntry{
+			Text:    candidate.Text,
+			Comment: candidate.Comment,
+		})
+	}
+	return entries
+}
+
 func (ime *IME) iconPath(name string) string {
 	if ime.iconDir == "" || name == "" {
 		return ""
@@ -1555,6 +1576,13 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 				{"id": ID_APPEARANCE_FONT_18, "text": "18", "checked": ime.style.FontPoint == 18},
 				{"id": ID_APPEARANCE_FONT_20, "text": "20", "checked": ime.style.FontPoint == 20},
 				{"id": ID_APPEARANCE_FONT_22, "text": "22", "checked": ime.style.FontPoint == 22},
+			}},
+			{"text": "注释文字大小", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_COMMENT_FONT_14, "text": "14", "checked": ime.style.CandidateCommentFontPoint == 14},
+				{"id": ID_APPEARANCE_COMMENT_FONT_16, "text": "16", "checked": ime.style.CandidateCommentFontPoint == 16},
+				{"id": ID_APPEARANCE_COMMENT_FONT_18, "text": "18", "checked": ime.style.CandidateCommentFontPoint == 18},
+				{"id": ID_APPEARANCE_COMMENT_FONT_20, "text": "20", "checked": ime.style.CandidateCommentFontPoint == 20},
+				{"id": ID_APPEARANCE_COMMENT_FONT_22, "text": "22", "checked": ime.style.CandidateCommentFontPoint == 22},
 			}},
 			{"text": "候选框背景", "submenu": []map[string]interface{}{
 				{"id": ID_APPEARANCE_BG_WHITE, "text": "白色", "checked": strings.EqualFold(ime.style.CandidateBackgroundColor, "#ffffff")},

@@ -112,6 +112,11 @@ type PreservedKeyInfo struct {
 	GUID      string
 }
 
+type CandidateEntry struct {
+	Text    string
+	Comment string
+}
+
 // Response Moqi响应结构
 type Response struct {
 	SeqNum             int
@@ -121,6 +126,7 @@ type Response struct {
 	CompositionString  string
 	CommitString       string
 	CandidateList      []string
+	CandidateEntries   []CandidateEntry
 	ShowCandidates     bool
 	CursorPos          int
 	CompositionCursor  int
@@ -147,6 +153,7 @@ func NewResponse(seqNum int, success bool) *Response {
 		SeqNum:            seqNum,
 		Success:           success,
 		CandidateList:     []string{},
+		CandidateEntries:  []CandidateEntry{},
 		CompositionString: "",
 	}
 }
@@ -240,6 +247,12 @@ func BuildProtoResponse(clientID string, resp *Response) (*moqipb.ServerResponse
 
 	if ui := customizeUiToProto(resp.CustomizeUI); ui != nil {
 		msg.CustomizeUi = ui
+	}
+	for _, candidate := range resp.CandidateEntries {
+		msg.CandidateEntries = append(msg.CandidateEntries, &moqipb.CandidateEntry{
+			Text:    candidate.Text,
+			Comment: candidate.Comment,
+		})
 	}
 	if resp.ShowMessage != nil {
 		msg.ShowMessage = &moqipb.MessageWindow{
@@ -360,8 +373,8 @@ func buttonInfoToProto(btn ButtonInfo) *moqipb.ButtonInfo {
 		Type:      buttonTypeToProto(btn.Type),
 		// Legacy JSON omitted "enable" for normal buttons, which the Windows side
 		// treated as enabled. Preserve that behavior for protobuf payloads.
-		Enable:    true,
-		Toggled:   btn.Toggled,
+		Enable:  true,
+		Toggled: btn.Toggled,
 	}
 	if btn.Style != 0 {
 		msg.Style = uint32Ptr(btn.Style)
@@ -413,6 +426,9 @@ func customizeUiToProto(data map[string]interface{}) *moqipb.CustomizeUi {
 	}
 	if value, ok := data["candHighlightTextColor"].(string); ok {
 		ui.CandHighlightTextColor = stringPtrOrNil(value)
+	}
+	if value, ok := numericToUint32(data["candCommentFontSize"]); ok {
+		ui.CandCommentFontSize = uint32Ptr(value)
 	}
 	return ui
 }

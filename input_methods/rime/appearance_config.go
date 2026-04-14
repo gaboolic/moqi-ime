@@ -15,6 +15,7 @@ const rimeDefaultCustomConfigFileName = "default.custom.yaml"
 type appearanceConfig struct {
 	CandidateTheme              *string `json:"candidate_theme,omitempty"`
 	FontPoint                   *int    `json:"font_point,omitempty"`
+	CandidateCommentFontPoint   *int    `json:"candidate_comment_font_point,omitempty"`
 	InlinePreedit               *bool   `json:"inline_preedit,omitempty"`
 	CandidatePerRow             *int    `json:"candidate_per_row,omitempty"`
 	CandidateCount              *int    `json:"candidate_count,omitempty"`
@@ -59,6 +60,7 @@ func cloneAppearanceConfig(cfg appearanceConfig) appearanceConfig {
 	return appearanceConfig{
 		CandidateTheme:              cloneStringPtr(cfg.CandidateTheme),
 		FontPoint:                   cloneIntPtr(cfg.FontPoint),
+		CandidateCommentFontPoint:   cloneIntPtr(cfg.CandidateCommentFontPoint),
 		InlinePreedit:               cloneBoolPtr(cfg.InlinePreedit),
 		CandidatePerRow:             cloneIntPtr(cfg.CandidatePerRow),
 		CandidateCount:              cloneIntPtr(cfg.CandidateCount),
@@ -221,6 +223,9 @@ func (ime *IME) applyAppearanceConfig(cfg appearanceConfig) {
 	if cfg.FontPoint != nil && *cfg.FontPoint > 0 {
 		ime.style.FontPoint = *cfg.FontPoint
 	}
+	if cfg.CandidateCommentFontPoint != nil && *cfg.CandidateCommentFontPoint > 0 {
+		ime.style.CandidateCommentFontPoint = *cfg.CandidateCommentFontPoint
+	}
 	if cfg.InlinePreedit != nil {
 		if *cfg.InlinePreedit {
 			ime.style.InlinePreedit = "composition"
@@ -286,15 +291,17 @@ func (ime *IME) saveAppearancePrefs() {
 	}
 	theme := ime.style.CandidateTheme
 	fontPoint := ime.style.FontPoint
+	commentFontPoint := ime.style.CandidateCommentFontPoint
 	inlinePreedit := ime.inlinePreeditEnabled()
 	candidatePerRow := ime.style.CandidatePerRow
 	candidateCount := ime.style.CandidateCount
 	cfg := appearanceConfig{
-		CandidateTheme:  &theme,
-		FontPoint:       &fontPoint,
-		InlinePreedit:   &inlinePreedit,
-		CandidatePerRow: &candidatePerRow,
-		CandidateCount:  &candidateCount,
+		CandidateTheme:            &theme,
+		FontPoint:                 &fontPoint,
+		CandidateCommentFontPoint: &commentFontPoint,
+		InlinePreedit:             &inlinePreedit,
+		CandidatePerRow:           &candidatePerRow,
+		CandidateCount:            &candidateCount,
 	}
 	if !isBuiltinTheme(theme) || theme == "custom" {
 		backgroundColor := ime.style.CandidateBackgroundColor
@@ -352,6 +359,7 @@ func (ime *IME) customizeUIMap() map[string]interface{} {
 	return map[string]interface{}{
 		"candFontName":           ime.style.FontFace,
 		"candFontSize":           ime.style.FontPoint,
+		"candCommentFontSize":    ime.style.CandidateCommentFontPoint,
 		"candPerRow":             ime.effectiveCandidatePerRow(),
 		"candUseCursor":          ime.style.CandidateUseCursor,
 		"candBackgroundColor":    normalizeColor(ime.style.CandidateBackgroundColor),
@@ -451,6 +459,16 @@ func (ime *IME) applyAppearanceCommand(commandID int) bool {
 		ime.style.FontPoint = 20
 	case ID_APPEARANCE_FONT_22:
 		ime.style.FontPoint = 22
+	case ID_APPEARANCE_COMMENT_FONT_14:
+		ime.style.CandidateCommentFontPoint = 14
+	case ID_APPEARANCE_COMMENT_FONT_16:
+		ime.style.CandidateCommentFontPoint = 16
+	case ID_APPEARANCE_COMMENT_FONT_18:
+		ime.style.CandidateCommentFontPoint = 18
+	case ID_APPEARANCE_COMMENT_FONT_20:
+		ime.style.CandidateCommentFontPoint = 20
+	case ID_APPEARANCE_COMMENT_FONT_22:
+		ime.style.CandidateCommentFontPoint = 22
 	case ID_APPEARANCE_BG_WHITE:
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateBackgroundColor = "#ffffff"
