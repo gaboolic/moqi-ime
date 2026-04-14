@@ -315,8 +315,9 @@ func TestNewInitialState(t *testing.T) {
 	if ime.style.CandidatePerRow != 1 {
 		t.Fatalf("expected vertical layout by default, got CandidatePerRow=%d", ime.style.CandidatePerRow)
 	}
-	if ime.style.CandidateTheme != "default" || ime.style.FontPoint != 20 {
-		t.Fatalf("expected default theme defaults, got theme=%q font=%d", ime.style.CandidateTheme, ime.style.FontPoint)
+	if ime.style.CandidateTheme != "default" || ime.style.FontPoint != 20 || ime.style.CandidateCommentFontPoint != 18 {
+		t.Fatalf("expected default theme defaults, got theme=%q font=%d commentFont=%d",
+			ime.style.CandidateTheme, ime.style.FontPoint, ime.style.CandidateCommentFontPoint)
 	}
 	if ime.style.CandidateBackgroundColor != "#ffffff" || ime.style.CandidateHighlightColor != "#c6ddf9" {
 		t.Fatalf("expected default theme colors, got bg=%q hl=%q",
@@ -1508,6 +1509,9 @@ func TestLoadAppearancePrefsCreatesDefaultConfigWhenMissing(t *testing.T) {
 	}
 	if got := persisted["font_point"]; got != float64(20) {
 		t.Fatalf("expected persisted font_point 20, got %#v", got)
+	}
+	if got := persisted["candidate_comment_font_point"]; got != float64(18) {
+		t.Fatalf("expected persisted candidate_comment_font_point 18, got %#v", got)
 	}
 	if got := persisted["candidate_theme"]; got != "default" {
 		t.Fatalf("expected persisted candidate_theme default, got %#v", got)
