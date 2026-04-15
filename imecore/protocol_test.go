@@ -68,3 +68,26 @@ func TestBuildProtoResponseIncludesClearedCompositionState(t *testing.T) {
 		t.Fatalf("expected empty candidateList, got %#v", msg.GetCandidateList())
 	}
 }
+
+func TestBuildProtoResponseIncludesCustomizeUIBooleans(t *testing.T) {
+	resp := NewResponse(1, true)
+	resp.CustomizeUI = map[string]interface{}{
+		"autoPairQuotes":        true,
+		"semicolonSelectSecond": true,
+	}
+
+	msg, err := BuildProtoResponse("client-1", resp)
+	if err != nil {
+		t.Fatalf("BuildProtoResponse failed: %v", err)
+	}
+
+	if msg.GetCustomizeUi() == nil {
+		t.Fatal("expected customize_ui to be present")
+	}
+	if got := msg.GetCustomizeUi().GetAutoPairQuotes(); !got {
+		t.Fatalf("expected autoPairQuotes=true, got %v", got)
+	}
+	if got := msg.GetCustomizeUi().GetSemicolonSelectSecond(); !got {
+		t.Fatalf("expected semicolonSelectSecond=true, got %v", got)
+	}
+}

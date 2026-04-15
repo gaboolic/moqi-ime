@@ -333,7 +333,7 @@ func (ime *IME) isCustomPhraseHandledKey(req *imecore.Request, totalCandidates i
 		return false
 	}
 	switch req.KeyCode {
-	case vkUp, vkDown, vkReturn, vkSpace:
+	case vkUp, vkDown, vkSpace:
 		return true
 	}
 	return false
@@ -353,7 +353,7 @@ func (ime *IME) handleCustomPhraseKeyDownFilter(req *imecore.Request, resp *imec
 	}
 	ime.customPhraseConsumeKeyUpCode = selectionShortcutConsumeCode(req)
 	if isSemicolonDebugEvent(req) {
-		log.Printf("semicolon filter custom handled consume=%d composition=%q custom=%v backend=%v",
+		debugLogf("semicolon filter custom handled consume=%d composition=%q custom=%v backend=%v",
 			ime.customPhraseConsumeKeyUpCode,
 			state.Composition,
 			summarizeCandidateTexts(customCandidates, 6),
@@ -417,7 +417,7 @@ func (ime *IME) handleCustomPhraseKeyDown(req *imecore.Request, resp *imecore.Re
 		ime.fillResponseFromCurrentState(resp)
 		resp.ReturnValue = 1
 		return true
-	case vkReturn, vkSpace:
+	case vkSpace:
 		if ime.customPhraseCursor < len(customCandidates) {
 			ime.commitCustomPhraseCandidate(resp, customCandidates[ime.customPhraseCursor])
 			resp.ReturnValue = 1
@@ -434,7 +434,7 @@ func (ime *IME) handleCustomPhraseKeyDown(req *imecore.Request, resp *imecore.Re
 		if index, ok := ime.selectionKeyIndex(req); ok {
 			if index < len(customCandidates) {
 				if isSemicolonDebugEvent(req) {
-					log.Printf("semicolon onKeyDown custom selecting customIndex=%d text=%q composition=%q custom=%v backend=%v",
+					debugLogf("semicolon onKeyDown custom selecting customIndex=%d text=%q composition=%q custom=%v backend=%v",
 						index,
 						customCandidates[index].Text,
 						state.Composition,
@@ -449,7 +449,7 @@ func (ime *IME) handleCustomPhraseKeyDown(req *imecore.Request, resp *imecore.Re
 			}
 			if index < total && ime.commitBackendOverlayCandidate(resp, index-len(customCandidates)) {
 				if isSemicolonDebugEvent(req) {
-					log.Printf("semicolon onKeyDown custom selecting backendIndex=%d composition=%q custom=%v backend=%v commit=%q",
+					debugLogf("semicolon onKeyDown custom selecting backendIndex=%d composition=%q custom=%v backend=%v commit=%q",
 						index-len(customCandidates),
 						state.Composition,
 						summarizeCandidateTexts(customCandidates, 6),

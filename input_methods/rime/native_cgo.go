@@ -111,14 +111,14 @@ func (b *nativeBackend) Initialize(sharedDir, userDir string, firstRun bool) boo
 	rimeInitOnce.Do(func() {
 		executedOnce = true
 		onceStart := time.Now()
-		log.Printf("nativeBackend.Initialize 一次性初始化开始 firstRun=%t sharedDir=%q userDir=%q", firstRun, sharedDir, userDir)
+		debugLogf("nativeBackend.Initialize 一次性初始化开始 firstRun=%t sharedDir=%q userDir=%q", firstRun, sharedDir, userDir)
 		rimeInitOK = RimeInit(sharedDir, userDir, APP, APP_VERSION, firstRun)
-		log.Printf("nativeBackend.Initialize 一次性初始化完成 elapsed=%s success=%t", time.Since(onceStart), rimeInitOK)
+		debugLogf("nativeBackend.Initialize 一次性初始化完成 elapsed=%s success=%t", time.Since(onceStart), rimeInitOK)
 		if !rimeInitOK {
 			log.Println("RIME 初始化失败，原生后端不可用")
 		}
 	})
-	log.Printf("nativeBackend.Initialize 返回 elapsed=%s success=%t executedOnce=%t", time.Since(initStart), rimeInitOK, executedOnce)
+	debugLogf("nativeBackend.Initialize 返回 elapsed=%s success=%t executedOnce=%t", time.Since(initStart), rimeInitOK, executedOnce)
 	return rimeInitOK
 }
 

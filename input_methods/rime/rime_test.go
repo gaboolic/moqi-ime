@@ -2134,6 +2134,37 @@ func TestCustomPhraseOverlayCanSelectBackendCandidateAfterCustomOnes(t *testing.
 	}
 }
 
+func TestCustomPhraseOverlayDoesNotInterceptEnter(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 自定义短语\nalpha\ta\t10\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "a"
+	backend.candidates = []candidateItem{{Text: "阿"}}
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum:  35,
+		KeyCode: vkReturn,
+	}, imecore.NewResponse(35, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected enter key handled by backend flow, got %d", filterResp.ReturnValue)
+	}
+
+	onResp := ime.onKeyDown(&imecore.Request{
+		SeqNum:  36,
+		KeyCode: vkReturn,
+	}, imecore.NewResponse(36, true))
+	if onResp.ReturnValue != 1 {
+		t.Fatalf("expected enter keydown handled, got %d", onResp.ReturnValue)
+	}
+	if onResp.CommitString != "阿" {
+		t.Fatalf("expected enter to commit backend first candidate 阿, got %q", onResp.CommitString)
+	}
+}
+
 func TestCustomPhraseOverlaySemicolonSelectsSecondVisibleCandidate(t *testing.T) {
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
@@ -2199,7 +2230,7 @@ func TestFillResponseFromBackendStateAppliesCandidateCount(t *testing.T) {
 	}
 }
 
-func TestHandleRequestCompositionTerminatedResetsState(t *testing.T) {
+func TestHandleRequestCompositionTerminatedPreservesBackendStateWhenNotForced(t *testing.T) {
 	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
@@ -2213,8 +2244,31 @@ func TestHandleRequestCompositionTerminatedResetsState(t *testing.T) {
 	if !resp.Success {
 		t.Fatal("expected composition termination response to succeed")
 	}
+	if backend.composition != "ni" {
+		t.Fatalf("expected non-forced termination to preserve backend composition, got %q", backend.composition)
+	}
+	if len(backend.candidates) == 0 {
+		t.Fatal("expected non-forced termination to preserve backend candidates")
+	}
+}
+
+func TestHandleRequestCompositionTerminatedForcedResetsState(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "ni"
+	backend.refreshCandidates()
+
+	resp := ime.HandleRequest(&imecore.Request{
+		SeqNum: 13,
+		Method: "onCompositionTerminated",
+		Forced: true,
+	})
+
+	if !resp.Success {
+		t.Fatal("expected forced composition termination response to succeed")
+	}
 	if backend.composition != "" || backend.candidates != nil {
-		t.Fatal("expected state reset on composition termination")
+		t.Fatal("expected forced composition termination to reset backend state")
 	}
 }
 

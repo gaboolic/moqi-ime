@@ -430,6 +430,12 @@ func customizeUiToProto(data map[string]interface{}) *moqipb.CustomizeUi {
 	if value, ok := numericToUint32(data["candCommentFontSize"]); ok {
 		ui.CandCommentFontSize = uint32Ptr(value)
 	}
+	if value, ok := data["autoPairQuotes"].(bool); ok {
+		ui.AutoPairQuotes = boolPtr(value)
+	}
+	if value, ok := data["semicolonSelectSecond"].(bool); ok {
+		ui.SemicolonSelectSecond = boolPtr(value)
+	}
 	return ui
 }
 

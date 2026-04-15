@@ -613,6 +613,8 @@ type CustomizeUi struct {
 	CandTextColor          *string                `protobuf:"bytes,8,opt,name=cand_text_color,json=candTextColor,proto3,oneof" json:"cand_text_color,omitempty"`
 	CandHighlightTextColor *string                `protobuf:"bytes,9,opt,name=cand_highlight_text_color,json=candHighlightTextColor,proto3,oneof" json:"cand_highlight_text_color,omitempty"`
 	CandCommentFontSize    *uint32                `protobuf:"varint,10,opt,name=cand_comment_font_size,json=candCommentFontSize,proto3,oneof" json:"cand_comment_font_size,omitempty"`
+	AutoPairQuotes         *bool                  `protobuf:"varint,11,opt,name=auto_pair_quotes,json=autoPairQuotes,proto3,oneof" json:"auto_pair_quotes,omitempty"`
+	SemicolonSelectSecond  *bool                  `protobuf:"varint,12,opt,name=semicolon_select_second,json=semicolonSelectSecond,proto3,oneof" json:"semicolon_select_second,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -715,6 +717,20 @@ func (x *CustomizeUi) GetCandCommentFontSize() uint32 {
 		return *x.CandCommentFontSize
 	}
 	return 0
+}
+
+func (x *CustomizeUi) GetAutoPairQuotes() bool {
+	if x != nil && x.AutoPairQuotes != nil {
+		return *x.AutoPairQuotes
+	}
+	return false
+}
+
+func (x *CustomizeUi) GetSemicolonSelectSecond() bool {
+	if x != nil && x.SemicolonSelectSecond != nil {
+		return *x.SemicolonSelectSecond
+	}
+	return false
 }
 
 type MessageWindow struct {
@@ -1341,7 +1357,7 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x04guid\x18\x03 \x01(\tR\x04guid\">\n" +
 	"\x0eCandidateEntry\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\x12\x18\n" +
-	"\acomment\x18\x02 \x01(\tR\acomment\"\xd8\x05\n" +
+	"\acomment\x18\x02 \x01(\tR\acomment\"\xf5\x06\n" +
 	"\vCustomizeUi\x12)\n" +
 	"\x0ecand_font_name\x18\x01 \x01(\tH\x00R\fcandFontName\x88\x01\x01\x12)\n" +
 	"\x0ecand_font_size\x18\x02 \x01(\rH\x01R\fcandFontSize\x88\x01\x01\x12%\n" +
@@ -1354,7 +1370,10 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x0fcand_text_color\x18\b \x01(\tH\aR\rcandTextColor\x88\x01\x01\x12>\n" +
 	"\x19cand_highlight_text_color\x18\t \x01(\tH\bR\x16candHighlightTextColor\x88\x01\x01\x128\n" +
 	"\x16cand_comment_font_size\x18\n" +
-	" \x01(\rH\tR\x13candCommentFontSize\x88\x01\x01B\x11\n" +
+	" \x01(\rH\tR\x13candCommentFontSize\x88\x01\x01\x12-\n" +
+	"\x10auto_pair_quotes\x18\v \x01(\bH\n" +
+	"R\x0eautoPairQuotes\x88\x01\x01\x12;\n" +
+	"\x17semicolon_select_second\x18\f \x01(\bH\vR\x15semicolonSelectSecond\x88\x01\x01B\x11\n" +
 	"\x0f_cand_font_nameB\x11\n" +
 	"\x0f_cand_font_sizeB\x0f\n" +
 	"\r_cand_per_rowB\x12\n" +
@@ -1364,7 +1383,9 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x15_cand_highlight_colorB\x12\n" +
 	"\x10_cand_text_colorB\x1c\n" +
 	"\x1a_cand_highlight_text_colorB\x19\n" +
-	"\x17_cand_comment_font_size\"E\n" +
+	"\x17_cand_comment_font_sizeB\x13\n" +
+	"\x11_auto_pair_quotesB\x1a\n" +
+	"\x18_semicolon_select_second\"E\n" +
 	"\rMessageWindow\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1a\n" +
 	"\bduration\x18\x02 \x01(\x05R\bduration\"{\n" +

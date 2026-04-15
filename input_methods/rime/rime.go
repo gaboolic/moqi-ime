@@ -278,7 +278,7 @@ func (ime *IME) HandleRequest(req *imecore.Request) *imecore.Response {
 	}
 	ime.consumeAIAsyncResult(resp)
 	ime.consumeBackendNotification(resp)
-	log.Printf("RIME 输入法处理请求 client=%s seq=%d method=%s", ime.Client.ID, req.SeqNum, req.Method)
+	traceLogf("RIME 输入法处理请求 client=%s seq=%d method=%s", ime.Client.ID, req.SeqNum, req.Method)
 
 	switch req.Method {
 	case "onActivate":
@@ -413,8 +413,7 @@ func (ime *IME) onCompositionTerminated(req *imecore.Request, resp *imecore.Resp
 	ime.resetTrackedRawInput()
 	if req.Forced {
 		ime.destroySession(resp)
-	} else if ime.backend != nil {
-		ime.backend.ClearComposition()
+	} else {
 		ime.clearResponse(resp)
 	}
 	resp.ReturnValue = 1
@@ -557,7 +556,7 @@ func (ime *IME) handleSecondSelectionKeyDownFilter(req *imecore.Request, resp *i
 	shortcut := isSecondSelectionShortcut(req)
 	if !ime.semicolonSelectSecond || !shortcut {
 		if isSemicolonDebugEvent(req) {
-			log.Printf("semicolon filter backend ignored enabled=%t shortcut=%t key=%d char=%d shift=%t ctrl=%t alt=%t",
+			debugLogf("semicolon filter backend ignored enabled=%t shortcut=%t key=%d char=%d shift=%t ctrl=%t alt=%t",
 				ime.semicolonSelectSecond,
 				shortcut,
 				req.KeyCode,
@@ -571,7 +570,7 @@ func (ime *IME) handleSecondSelectionKeyDownFilter(req *imecore.Request, resp *i
 	}
 	state, ok := ime.currentVisibleBackendState()
 	if !ok || strings.TrimSpace(state.Composition) == "" || len(state.Candidates) < 2 {
-		log.Printf("semicolon filter backend unavailable ok=%t composition=%q candidates=%v",
+		debugLogf("semicolon filter backend unavailable ok=%t composition=%q candidates=%v",
 			ok,
 			state.Composition,
 			summarizeCandidateTexts(state.Candidates, 6),
@@ -579,7 +578,7 @@ func (ime *IME) handleSecondSelectionKeyDownFilter(req *imecore.Request, resp *i
 		return false
 	}
 	ime.secondSelectConsumeKeyUpCode = selectionShortcutConsumeCode(req)
-	log.Printf("semicolon filter backend handled consume=%d composition=%q candidates=%v",
+	debugLogf("semicolon filter backend handled consume=%d composition=%q candidates=%v",
 		ime.secondSelectConsumeKeyUpCode,
 		state.Composition,
 		summarizeCandidateTexts(state.Candidates, 6),
@@ -602,7 +601,7 @@ func (ime *IME) handleSecondSelectionKeyDown(req *imecore.Request, resp *imecore
 	}
 	state, ok := ime.currentVisibleBackendState()
 	if !ok || strings.TrimSpace(state.Composition) == "" || len(state.Candidates) < 2 {
-		log.Printf("semicolon onKeyDown backend fallback ok=%t composition=%q candidates=%v",
+		debugLogf("semicolon onKeyDown backend fallback ok=%t composition=%q candidates=%v",
 			ok,
 			state.Composition,
 			summarizeCandidateTexts(state.Candidates, 6),
@@ -611,17 +610,17 @@ func (ime *IME) handleSecondSelectionKeyDown(req *imecore.Request, resp *imecore
 		resp.ReturnValue = 1
 		return true
 	}
-	log.Printf("semicolon onKeyDown backend selecting visibleIndex=1 text=%q composition=%q candidates=%v",
+	debugLogf("semicolon onKeyDown backend selecting visibleIndex=1 text=%q composition=%q candidates=%v",
 		state.Candidates[1].Text,
 		state.Composition,
 		summarizeCandidateTexts(state.Candidates, 6),
 	)
 	if ime.commitBackendOverlayCandidate(resp, 1) {
-		log.Printf("semicolon onKeyDown backend committed commit=%q", resp.CommitString)
+		debugLogf("semicolon onKeyDown backend committed commit=%q", resp.CommitString)
 		resp.ReturnValue = 1
 		return true
 	}
-	log.Printf("semicolon onKeyDown backend select failed composition=%q candidates=%v",
+	debugLogf("semicolon onKeyDown backend select failed composition=%q candidates=%v",
 		state.Composition,
 		summarizeCandidateTexts(state.Candidates, 6),
 	)
@@ -892,7 +891,7 @@ func (ime *IME) handleAIKeyDownFilter(req *imecore.Request, resp *imecore.Respon
 		if ime.isAIHandledKey(req) {
 			ime.aiConsumeKeyUpCode = selectionShortcutConsumeCode(req)
 			if isSemicolonDebugEvent(req) {
-				log.Printf("semicolon filter ai handled consume=%d ai=%v",
+				debugLogf("semicolon filter ai handled consume=%d ai=%v",
 					ime.aiConsumeKeyUpCode,
 					ime.aiCandidates,
 				)
@@ -955,7 +954,7 @@ func (ime *IME) handleAIKeyDown(req *imecore.Request, resp *imecore.Response) bo
 	if index, ok := ime.selectionKeyIndex(req); ok {
 		if index >= 0 && index < aiCandidates {
 			if isSemicolonDebugEvent(req) {
-				log.Printf("semicolon onKeyDown ai selecting aiIndex=%d ai=%v", index, ime.aiCandidates)
+				debugLogf("semicolon onKeyDown ai selecting aiIndex=%d ai=%v", index, ime.aiCandidates)
 			}
 			ime.aiCandidateCursor = index
 			ime.commitAICandidate(resp)
@@ -965,7 +964,7 @@ func (ime *IME) handleAIKeyDown(req *imecore.Request, resp *imecore.Response) bo
 		if index >= aiCandidates && index < totalCandidates {
 			if isSemicolonDebugEvent(req) {
 				state, _ := ime.currentVisibleBackendState()
-				log.Printf("semicolon onKeyDown ai selecting backendIndex=%d ai=%v backend=%v",
+				debugLogf("semicolon onKeyDown ai selecting backendIndex=%d ai=%v backend=%v",
 					index-aiCandidates,
 					ime.aiCandidates,
 					summarizeCandidateTexts(state.Candidates, 6),
@@ -1318,10 +1317,10 @@ func (ime *IME) commitBackendOverlayCandidate(resp *imecore.Response, backendInd
 		return false
 	}
 	if !ime.backend.SelectCandidate(backendIndex) {
-		log.Printf("backend overlay select failed backendIndex=%d", backendIndex)
+		debugLogf("backend overlay select failed backendIndex=%d", backendIndex)
 		return false
 	}
-	log.Printf("backend overlay select succeeded backendIndex=%d", backendIndex)
+	debugLogf("backend overlay select succeeded backendIndex=%d", backendIndex)
 	resp.ReturnValue = boolToInt(ime.onKey(&imecore.Request{}, resp))
 	return true
 }
@@ -1373,6 +1372,9 @@ func truncateRunes(s string, limit int) string {
 
 func (ime *IME) logShortcutTrace(req *imecore.Request, isUp bool, translatedKeyCode, modifiers int, backendRet, handled bool) {
 	if req == nil {
+		return
+	}
+	if !isTraceLoggingEnabled() {
 		return
 	}
 	if modifiers&controlMask == 0 && modifiers&altMask == 0 && req.KeyCode != vkControl && req.KeyCode != vkMenu {
