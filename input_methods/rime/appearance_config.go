@@ -228,11 +228,19 @@ func isBuiltinTheme(theme string) bool {
 }
 
 func userAppearanceConfigPath() string {
-	appData := os.Getenv("APPDATA")
-	if appData == "" {
+	root := moqiAppDataDir()
+	if root == "" {
 		return ""
 	}
-	return filepath.Join(appData, APP, "Rime", appearanceConfigFileName)
+	return filepath.Join(root, appearanceConfigFileName)
+}
+
+func legacyUserAppearanceConfigPath() string {
+	root := moqiAppDataDir()
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, defaultSchemeSetName, appearanceConfigFileName)
 }
 
 func (ime *IME) applyAppearanceConfig(cfg appearanceConfig) {
@@ -308,21 +316,44 @@ func (ime *IME) loadAppearancePrefs() {
 		ime.appearanceVersion = version
 		return
 	}
-	path := userAppearanceConfigPath()
-	if path == "" {
+
+	primaryPath := userAppearanceConfigPath()
+	if primaryPath == "" {
 		return
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
+
+	var (
+		data       []byte
+		err        error
+		loadedPath string
+	)
+	for _, path := range []string{primaryPath, legacyUserAppearanceConfigPath()} {
+		if path == "" {
+			continue
+		}
+		data, err = os.ReadFile(path)
+		if err == nil {
+			loadedPath = path
+			break
+		}
+		if !os.IsNotExist(err) {
+			return
+		}
+	}
+	if loadedPath == "" {
 		ime.saveAppearancePrefs()
 		return
 	}
+
 	var cfg appearanceConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return
 	}
 	ime.applyAppearanceConfig(cfg)
 	ime.appearanceVersion = setSharedAppearanceConfig(cfg)
+	if loadedPath != primaryPath {
+		ime.saveAppearancePrefs()
+	}
 }
 
 func (ime *IME) saveAppearancePrefs() {

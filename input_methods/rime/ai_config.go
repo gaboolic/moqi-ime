@@ -70,8 +70,11 @@ func loadAIConfig() (*aiRuntimeConfig, error) {
 }
 
 func aiConfigSearchPaths() []string {
-	paths := make([]string, 0, 2)
+	paths := make([]string, 0, 3)
 	if path := userAIConfigPath(); path != "" {
+		paths = append(paths, path)
+	}
+	if path := legacyUserAIConfigPath(); path != "" {
 		paths = append(paths, path)
 	}
 	if path := bundledAIConfigPath(); path != "" {
@@ -81,11 +84,19 @@ func aiConfigSearchPaths() []string {
 }
 
 func userAIConfigPath() string {
-	appData := os.Getenv("APPDATA")
-	if appData == "" {
+	root := moqiAppDataDir()
+	if root == "" {
 		return ""
 	}
-	return filepath.Join(appData, APP, "Rime", aiConfigFileName)
+	return filepath.Join(root, aiConfigFileName)
+}
+
+func legacyUserAIConfigPath() string {
+	root := moqiAppDataDir()
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, defaultSchemeSetName, aiConfigFileName)
 }
 
 func bundledAIConfigPath() string {

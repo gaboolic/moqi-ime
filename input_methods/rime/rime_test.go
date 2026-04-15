@@ -2,6 +2,7 @@ package rime
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,12 +14,27 @@ import (
 
 func writeTestAIConfig(t *testing.T, appData string, body string) {
 	t.Helper()
-	configPath := filepath.Join(appData, APP, "Rime", aiConfigFileName)
+	configPath := filepath.Join(appData, APP, aiConfigFileName)
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("create AI config dir: %v", err)
 	}
 	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
 		t.Fatalf("write AI config: %v", err)
+	}
+}
+
+func writeTestSchemeSetConfig(t *testing.T, appData, current string) {
+	t.Helper()
+	configPath := filepath.Join(appData, APP, schemeSetConfigFileName)
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("create scheme set config dir: %v", err)
+	}
+	body, err := json.MarshalIndent(schemeSetConfig{Current: current}, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal scheme set config: %v", err)
+	}
+	if err := os.WriteFile(configPath, body, 0o644); err != nil {
+		t.Fatalf("write scheme set config: %v", err)
 	}
 }
 
@@ -900,6 +916,115 @@ func TestBuildMenuIncludesSchemaSubmenu(t *testing.T) {
 	}
 }
 
+func TestBuildMenuIncludesSchemeSetSubmenuBeforeSchemaMenu(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	if err := os.MkdirAll(filepath.Join(appData, APP, "Work"), 0o755); err != nil {
+		t.Fatalf("create Work scheme set: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(appData, APP, defaultSchemeSetName), 0o755); err != nil {
+		t.Fatalf("create default scheme set: %v", err)
+	}
+	writeTestSchemeSetConfig(t, appData, "Work")
+
+	ime := newIsolatedTestIME(t)
+	items := ime.buildMenu()
+	if len(items) < 2 {
+		t.Fatalf("expected menu items, got %#v", items)
+	}
+
+	var schemeSetIndex = -1
+	var schemaIndex = -1
+	var schemeSetMenu map[string]interface{}
+	for i, item := range items {
+		text, _ := item["text"].(string)
+		if text == "切换方案集" {
+			schemeSetIndex = i
+			schemeSetMenu = item
+		}
+		if text == "输入方案(&I)" {
+			schemaIndex = i
+		}
+	}
+	if schemeSetIndex == -1 || schemaIndex == -1 {
+		t.Fatalf("expected both scheme set and schema submenus, got %#v", items)
+	}
+	if schemeSetIndex >= schemaIndex {
+		t.Fatalf("expected scheme set submenu before schema submenu, got schemeSetIndex=%d schemaIndex=%d", schemeSetIndex, schemaIndex)
+	}
+
+	submenu, ok := schemeSetMenu["submenu"].([]map[string]interface{})
+	if !ok || len(submenu) != 2 {
+		t.Fatalf("expected 2 scheme set submenu items, got %#v", schemeSetMenu["submenu"])
+	}
+	if submenu[0]["text"] != defaultSchemeSetName {
+		t.Fatalf("expected default scheme set first, got %#v", submenu[0]["text"])
+	}
+	if submenu[1]["text"] != "Work" {
+		t.Fatalf("expected Work scheme set second, got %#v", submenu[1]["text"])
+	}
+	if checked, _ := submenu[1]["checked"].(bool); !checked {
+		t.Fatalf("expected Work scheme set checked, got %#v", submenu[1])
+	}
+}
+
+func TestBuildMenuPlacesUpdateConfigBeforeDeploy(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	items := ime.buildMenu()
+
+	updateIndex := -1
+	deployIndex := -1
+	for i, item := range items {
+		text, _ := item["text"].(string)
+		if text == "更新配置(&P)" {
+			updateIndex = i
+		}
+		if text == "刷新配置(&R)" {
+			deployIndex = i
+		}
+	}
+	if updateIndex == -1 || deployIndex == -1 {
+		t.Fatalf("expected both update and deploy menu items, got %#v", items)
+	}
+	if updateIndex >= deployIndex {
+		t.Fatalf("expected update config before deploy, got updateIndex=%d deployIndex=%d", updateIndex, deployIndex)
+	}
+}
+
+func TestBuildMenuGroupsSchemeSetSchemaUpdateAndDeployWithoutSeparators(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	if err := os.MkdirAll(filepath.Join(appData, APP, defaultSchemeSetName), 0o755); err != nil {
+		t.Fatalf("create default scheme set: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(appData, APP, "Work"), 0o755); err != nil {
+		t.Fatalf("create Work scheme set: %v", err)
+	}
+
+	ime := newIsolatedTestIME(t)
+	items := ime.buildMenu()
+
+	indexByText := map[string]int{}
+	for i, item := range items {
+		text, _ := item["text"].(string)
+		indexByText[text] = i
+	}
+
+	group := []string{"切换方案集", "输入方案(&I)", "更新配置(&P)", "刷新配置(&R)"}
+	for _, text := range group {
+		if _, ok := indexByText[text]; !ok {
+			t.Fatalf("expected menu item %q, got %#v", text, items)
+		}
+	}
+	for i := 0; i < len(group)-1; i++ {
+		current := indexByText[group[i]]
+		next := indexByText[group[i+1]]
+		if next != current+1 {
+			t.Fatalf("expected %q and %q to be consecutive, got %d and %d", group[i], group[i+1], current, next)
+		}
+	}
+}
+
 func TestBuildMenuUsesSwitcherSaveOptions(t *testing.T) {
 	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
@@ -942,6 +1067,181 @@ func TestOnCommandTogglesDynamicSwitcherOption(t *testing.T) {
 	}
 	if !backend.GetOption("emoji") {
 		t.Fatal("expected dynamic switch option toggled on")
+	}
+}
+
+func TestOnCommandSwitchesSchemeSetAndRedeploysWithSelectedUserDir(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	if err := os.MkdirAll(filepath.Join(appData, APP, defaultSchemeSetName), 0o755); err != nil {
+		t.Fatalf("create default scheme set: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(appData, APP, "Work"), 0o755); err != nil {
+		t.Fatalf("create Work scheme set: %v", err)
+	}
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 100,
+		ID:     imecore.FlexibleID{Int: schemeSetCommandID(1), IsInt: true},
+	}, imecore.NewResponse(100, true))
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected scheme set command handled, got %d", resp.ReturnValue)
+	}
+	if backend.redeployCalls != 1 {
+		t.Fatalf("expected scheme set switch to redeploy once, got %d", backend.redeployCalls)
+	}
+	wantUserDir := filepath.Join(appData, APP, "Work")
+	if backend.redeployUserDir != wantUserDir {
+		t.Fatalf("expected redeploy user dir %q, got %q", wantUserDir, backend.redeployUserDir)
+	}
+	if got := currentSchemeSetName(); got != "Work" {
+		t.Fatalf("expected current scheme set Work after switch, got %q", got)
+	}
+}
+
+func TestOnCommandUpdateConfigFailsWithoutGit(t *testing.T) {
+	oldLookPath := gitLookPathFunc
+	oldIsRepo := gitIsRepoFunc
+	defer func() {
+		gitLookPathFunc = oldLookPath
+		gitIsRepoFunc = oldIsRepo
+	}()
+	resetConfigUpdateStateForTest()
+
+	gitLookPathFunc = func(file string) (string, error) {
+		return "", errors.New("missing git")
+	}
+	gitIsRepoFunc = func(dir string) (bool, error) {
+		t.Fatalf("did not expect git repo check when git is missing")
+		return false, nil
+	}
+
+	ime := newIsolatedTestIME(t)
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 101,
+		ID:     imecore.FlexibleID{Int: ID_UPDATE_CONFIG, IsInt: true},
+	}, imecore.NewResponse(101, true))
+	if resp.ReturnValue != 0 {
+		t.Fatalf("expected update config command to fail without git, got %d", resp.ReturnValue)
+	}
+	if resp.TrayNotification == nil || resp.TrayNotification.Message != "未检测到 Git 命令" {
+		t.Fatalf("unexpected tray notification: %#v", resp.TrayNotification)
+	}
+}
+
+func TestOnCommandUpdateConfigFailsWhenUserDirNotGitRepo(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	oldLookPath := gitLookPathFunc
+	oldIsRepo := gitIsRepoFunc
+	defer func() {
+		gitLookPathFunc = oldLookPath
+		gitIsRepoFunc = oldIsRepo
+	}()
+	resetConfigUpdateStateForTest()
+
+	gitLookPathFunc = func(file string) (string, error) {
+		return "git", nil
+	}
+	gitIsRepoFunc = func(dir string) (bool, error) {
+		want := filepath.Join(appData, APP, defaultSchemeSetName)
+		if dir != want {
+			t.Fatalf("expected git repo check dir %q, got %q", want, dir)
+		}
+		return false, nil
+	}
+
+	ime := newIsolatedTestIME(t)
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 102,
+		ID:     imecore.FlexibleID{Int: ID_UPDATE_CONFIG, IsInt: true},
+	}, imecore.NewResponse(102, true))
+	if resp.ReturnValue != 0 {
+		t.Fatalf("expected update config command to fail for non-git dir, got %d", resp.ReturnValue)
+	}
+	if resp.TrayNotification == nil || resp.TrayNotification.Message != "当前方案集目录不是 Git 仓库" {
+		t.Fatalf("unexpected tray notification: %#v", resp.TrayNotification)
+	}
+}
+
+func TestOnCommandUpdateConfigRunsGitPullAsyncAndNotifies(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	oldLookPath := gitLookPathFunc
+	oldIsRepo := gitIsRepoFunc
+	oldPull := gitPullFunc
+	defer func() {
+		gitLookPathFunc = oldLookPath
+		gitIsRepoFunc = oldIsRepo
+		gitPullFunc = oldPull
+		resetConfigUpdateStateForTest()
+	}()
+	resetConfigUpdateStateForTest()
+
+	userDir := filepath.Join(appData, APP, defaultSchemeSetName)
+	if err := os.MkdirAll(userDir, 0o755); err != nil {
+		t.Fatalf("create user dir: %v", err)
+	}
+
+	gitLookPathFunc = func(file string) (string, error) {
+		return "git", nil
+	}
+	gitIsRepoFunc = func(dir string) (bool, error) {
+		return dir == userDir, nil
+	}
+	pullDone := make(chan struct{})
+	var pullDir string
+	gitPullFunc = func(dir string) (string, error) {
+		pullDir = dir
+		time.Sleep(120 * time.Millisecond)
+		close(pullDone)
+		return "Already up to date.", nil
+	}
+
+	ime := newIsolatedTestIME(t)
+	asyncResponses := make(chan *imecore.Response, 1)
+	ime.SetAsyncResponseSender(func(resp *imecore.Response) {
+		asyncResponses <- resp
+	})
+
+	start := time.Now()
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 103,
+		ID:     imecore.FlexibleID{Int: ID_UPDATE_CONFIG, IsInt: true},
+	}, imecore.NewResponse(103, true))
+	if elapsed := time.Since(start); elapsed > 60*time.Millisecond {
+		t.Fatalf("expected update config command to return quickly, took %s", elapsed)
+	}
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected update config command to succeed, got %d", resp.ReturnValue)
+	}
+	if resp.TrayNotification == nil || resp.TrayNotification.Message != "开始更新配置..." {
+		t.Fatalf("unexpected initial tray notification: %#v", resp.TrayNotification)
+	}
+
+	select {
+	case <-pullDone:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for async git pull")
+	}
+
+	if pullDir != userDir {
+		t.Fatalf("expected git pull dir %q, got %q", userDir, pullDir)
+	}
+
+	select {
+	case asyncResp := <-asyncResponses:
+		if asyncResp.TrayNotification == nil {
+			t.Fatalf("expected async tray notification, got %#v", asyncResp)
+		}
+		if asyncResp.TrayNotification.Message != "配置已是最新" {
+			t.Fatalf("unexpected async tray notification: %#v", asyncResp.TrayNotification)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for async tray notification")
 	}
 }
 
@@ -1086,7 +1386,7 @@ func TestOnCommandCandidateCountWritesConfigAndDeploysConfigFile(t *testing.T) {
 	if deployFile != "default.yaml" || deployKey != "config_version" {
 		t.Fatalf("unexpected deploy config args file=%q key=%q", deployFile, deployKey)
 	}
-	configPath := filepath.Join(os.Getenv("APPDATA"), APP, "Rime", rimeDefaultCustomConfigFileName)
+	configPath := filepath.Join(os.Getenv("APPDATA"), APP, defaultSchemeSetName, rimeDefaultCustomConfigFileName)
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("expected %s written, got err=%v", configPath, err)
@@ -1140,7 +1440,7 @@ func TestOnCommandCandidateCountUsesRuntimePageSizeWhenAvailable(t *testing.T) {
 	if len(backend.pageSizeCalls) == 0 || backend.pageSizeCalls[len(backend.pageSizeCalls)-1] != 3 {
 		t.Fatalf("expected runtime page size call with 3, got %#v", backend.pageSizeCalls)
 	}
-	configPath := filepath.Join(os.Getenv("APPDATA"), APP, "Rime", rimeDefaultCustomConfigFileName)
+	configPath := filepath.Join(os.Getenv("APPDATA"), APP, defaultSchemeSetName, rimeDefaultCustomConfigFileName)
 	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
 		t.Fatalf("expected no config file write on runtime success, got err=%v", err)
 	}
@@ -1421,7 +1721,7 @@ func TestOnCommandTogglesAutoPairQuotes(t *testing.T) {
 		t.Fatalf("expected customizeUI autoPairQuotes true, got %#v", resp.CustomizeUI["autoPairQuotes"])
 	}
 
-	configPath := filepath.Join(appData, APP, "Rime", appearanceConfigFileName)
+	configPath := filepath.Join(appData, APP, appearanceConfigFileName)
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("expected appearance config written to disk: %v", err)
@@ -1671,7 +1971,7 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	ime.autoPairQuotes = true
 	ime.saveAppearancePrefs()
 
-	configPath := filepath.Join(appData, APP, "Rime", appearanceConfigFileName)
+	configPath := filepath.Join(appData, APP, appearanceConfigFileName)
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("expected appearance config written to disk: %v", err)
@@ -1753,7 +2053,7 @@ func TestLoadAppearancePrefsCreatesDefaultConfigWhenMissing(t *testing.T) {
 	ime := newTestIME()
 	ime.loadAppearancePrefs()
 
-	configPath := filepath.Join(appData, APP, "Rime", appearanceConfigFileName)
+	configPath := filepath.Join(appData, APP, appearanceConfigFileName)
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("expected default appearance config written to disk: %v", err)

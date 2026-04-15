@@ -31,8 +31,10 @@ const (
 	ID_SHARED_DIR         = 13
 	ID_USER_DIR           = 14
 	ID_LOG_DIR            = 16
+	ID_UPDATE_CONFIG      = 17
 	ID_SCHEMA_BASE        = 1000
 	ID_SWITCH_BASE        = 2000
+	ID_SCHEME_SET_BASE    = 3000
 
 	ID_APPEARANCE_INLINE_PREEDIT      = 100
 	ID_APPEARANCE_FONT_14             = 110
@@ -416,6 +418,11 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 			resp.ReturnValue = 0
 			return resp
 		}
+	case ID_UPDATE_CONFIG:
+		if !ime.updateConfigAsync(resp) {
+			resp.ReturnValue = 0
+			return resp
+		}
 	case ID_USER_DIR:
 		ime.openPath(ime.userDir())
 	case ID_SHARED_DIR:
@@ -448,6 +455,12 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 			return resp
 		}
 		if ime.handleSwitchCommand(commandID) {
+			ime.resetAIState()
+			resp.ReturnValue = 1
+			ime.updateLangStatus(req, resp)
+			return resp
+		}
+		if ime.handleSchemeSetCommand(commandID, req, resp) {
 			ime.resetAIState()
 			resp.ReturnValue = 1
 			ime.updateLangStatus(req, resp)
@@ -527,7 +540,7 @@ func (ime *IME) Init(req *imecore.Request) bool {
 		log.Println("未找到 APPDATA，原生 RIME 不可用")
 		return true
 	}
-	userDir := filepath.Join(appData, APP, "Rime")
+	userDir := ime.userDir()
 	info, statErr := os.Stat(userDir)
 	if statErr != nil {
 		if os.IsNotExist(statErr) {
@@ -1384,6 +1397,18 @@ func switchCommandIndex(commandID int) (int, bool) {
 	return index, true
 }
 
+func schemeSetCommandID(index int) int {
+	return ID_SCHEME_SET_BASE + index
+}
+
+func schemeSetCommandIndex(commandID int) (int, bool) {
+	index := commandID - ID_SCHEME_SET_BASE
+	if index < 0 {
+		return 0, false
+	}
+	return index, true
+}
+
 func (ime *IME) menuSwitches() []RimeSwitch {
 	if ime.backend == nil {
 		return nil
@@ -1457,6 +1482,40 @@ func (ime *IME) handleSwitchCommand(commandID int) bool {
 	}
 	ime.toggleOption(name)
 	return true
+}
+
+func (ime *IME) handleSchemeSetCommand(commandID int, req *imecore.Request, resp *imecore.Response) bool {
+	index, ok := schemeSetCommandIndex(commandID)
+	if !ok {
+		return false
+	}
+	names := availableSchemeSets()
+	if index < 0 || index >= len(names) {
+		return false
+	}
+	target := names[index]
+	current := currentSchemeSetName()
+	if target == current {
+		return true
+	}
+
+	root := moqiAppDataDir()
+	if root == "" {
+		return false
+	}
+	targetDir := filepath.Join(root, target)
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		log.Printf("创建方案集目录失败 %s: %v", targetDir, err)
+		return false
+	}
+	if !saveCurrentSchemeSetName(target) {
+		return false
+	}
+	if ime.redeploy(req, resp) {
+		return true
+	}
+	_ = saveCurrentSchemeSetName(current)
+	return false
 }
 
 func (ime *IME) schemaMenuItems() []map[string]interface{} {
@@ -1729,8 +1788,9 @@ func (ime *IME) iconPath(name string) string {
 
 func (ime *IME) buildMenu() []map[string]interface{} {
 	menuSwitches := ime.menuSwitches()
+	schemeSetItems := schemeSetMenuItems()
 	schemaItems := ime.schemaMenuItems()
-	items := make([]map[string]interface{}, 0, len(menuSwitches)+9)
+	items := make([]map[string]interface{}, 0, len(menuSwitches)+len(schemeSetItems)+10)
 	for i, sw := range menuSwitches {
 		enabled := ime.backend != nil && ime.backend.GetOption(sw.Name)
 		items = append(items, map[string]interface{}{
@@ -1742,12 +1802,24 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 	if len(menuSwitches) > 0 {
 		items = append(items, map[string]interface{}{"text": ""})
 	}
+	if len(schemeSetItems) > 0 {
+		items = append(items, map[string]interface{}{
+			"text":    "切换方案集",
+			"submenu": schemeSetItems,
+		})
+	}
 	if len(schemaItems) > 0 {
 		items = append(items, map[string]interface{}{
 			"text":    "输入方案(&I)",
 			"submenu": schemaItems,
 		})
-		items = append(items, map[string]interface{}{"text": ""})
+	}
+	if len(schemeSetItems) > 0 || len(schemaItems) > 0 {
+		items = append(items,
+			map[string]interface{}{"id": ID_UPDATE_CONFIG, "text": "更新配置(&P)"},
+			map[string]interface{}{"id": ID_DEPLOY, "text": "刷新配置(&R)"},
+			map[string]interface{}{"text": ""},
+		)
 	}
 	items = append(items,
 		map[string]interface{}{"id": ID_SHARED_INPUT_STATE, "text": "输入状态共享", "checked": ime.inputStateShared},
@@ -1822,7 +1894,6 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 		map[string]interface{}{"text": "输入设置", "submenu": []map[string]interface{}{
 			{"id": ID_INPUT_AUTO_PAIR_QUOTES, "text": "自动插入成对引号", "checked": ime.autoPairQuotes},
 		}},
-		map[string]interface{}{"id": ID_DEPLOY, "text": "刷新配置(&R)"},
 		map[string]interface{}{"text": "打开文件夹(&O)", "submenu": []map[string]interface{}{
 			{"id": ID_USER_DIR, "text": "用户文件夹"},
 			{"id": ID_SHARED_DIR, "text": "共享文件夹"},
@@ -1859,11 +1930,11 @@ func (ime *IME) sharedDir() string {
 }
 
 func (ime *IME) userDir() string {
-	appData := os.Getenv("APPDATA")
-	if appData == "" {
+	root := moqiAppDataDir()
+	if root == "" {
 		return ""
 	}
-	return filepath.Join(appData, APP, "Rime")
+	return filepath.Join(root, currentSchemeSetName())
 }
 
 func rimeLogDir() string {

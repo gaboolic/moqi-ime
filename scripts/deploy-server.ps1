@@ -153,7 +153,7 @@ function Sync-RimeUserAIConfig {
         return
     }
 
-    $destinationDir = Join-Path $AppDataPath "Moqi\Rime"
+    $destinationDir = Join-Path $AppDataPath "Moqi"
     $destinationConfig = Join-Path $destinationDir "ai_config.json"
 
     Write-Host "[INFO] Syncing user ai_config.json ..."
