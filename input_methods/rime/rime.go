@@ -134,6 +134,7 @@ type rimeBackend interface {
 	Initialize(sharedDir, userDir string, firstRun bool) bool
 	Redeploy(sharedDir, userDir string) bool
 	SyncUserData() bool
+	HasSession() bool
 	EnsureSession() bool
 	DestroySession()
 	ClearComposition()
@@ -273,9 +274,6 @@ func (ime *IME) HandleRequest(req *imecore.Request) *imecore.Response {
 	resp := imecore.NewResponse(req.SeqNum, true)
 	if ime.syncAppearancePrefs() {
 		resp.CustomizeUI = ime.customizeUIMap()
-	}
-	if ime.inputStateShared {
-		ime.applySharedInputStateToBackend()
 	}
 	ime.consumeAIAsyncResult(resp)
 	ime.consumeBackendNotification(resp)
@@ -882,6 +880,9 @@ func (ime *IME) processKey(req *imecore.Request, isUp bool) bool {
 	if !isUp {
 		ime.updateTrackedRawInput(req, backendRet)
 	}
+	if ime.shouldSyncSharedInputStateAfterProcessKey(req, isUp) {
+		ime.syncSharedInputStateFromBackendIfChanged()
+	}
 	handled := backendRet
 	if backendRet {
 		ime.logShortcutTrace(req, isUp, translatedKeyCode, modifiers, backendRet, true)
@@ -900,6 +901,20 @@ func (ime *IME) processKey(req *imecore.Request, isUp bool) bool {
 	}
 	ime.logShortcutTrace(req, isUp, translatedKeyCode, modifiers, backendRet, handled)
 	return false
+}
+
+func (ime *IME) shouldSyncSharedInputStateAfterProcessKey(req *imecore.Request, isUp bool) bool {
+	if ime.backend == nil || !ime.inputStateShared || req == nil {
+		return false
+	}
+	switch req.KeyCode {
+	case vkShift:
+		return isUp
+	case vkCapital:
+		return !isUp
+	default:
+		return false
+	}
 }
 
 func (ime *IME) handleAIKeyDownFilter(req *imecore.Request, resp *imecore.Response) bool {
@@ -1465,10 +1480,11 @@ func (ime *IME) createSession(resp *imecore.Response) {
 	if ime.backend == nil || !ime.backendReady() {
 		return
 	}
+	hadSession := ime.backend.HasSession()
 	if !ime.backend.EnsureSession() {
 		return
 	}
-	if ime.inputStateShared {
+	if ime.inputStateShared && !hadSession {
 		ime.applySharedInputStateToBackend()
 	}
 	if ime.candidateCount() != 9 {

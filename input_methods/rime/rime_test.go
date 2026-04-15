@@ -102,6 +102,8 @@ type testBackend struct {
 	redeployOK        bool
 	syncCalls         int
 	syncOK            bool
+	setOptionCalls    int
+	getOptionCalls    int
 }
 
 func newTestBackend() *testBackend {
@@ -162,6 +164,10 @@ func (b *testBackend) SyncUserData() bool {
 	return b.syncOK
 }
 
+func (b *testBackend) HasSession() bool {
+	return b.session
+}
+
 func (b *testBackend) EnsureSession() bool {
 	b.session = true
 	return true
@@ -185,6 +191,14 @@ func (b *testBackend) ProcessKey(req *imecore.Request, translatedKeyCode, modifi
 	charCode := req.CharCode
 	if charCode == 0 && keyCode >= 'A' && keyCode <= 'Z' {
 		charCode = keyCode + 32
+	}
+	if keyCode == vkShift && modifiers == releaseMask {
+		b.SetOption("ascii_mode", !b.GetOption("ascii_mode"))
+		return false
+	}
+	if keyCode == vkCapital && modifiers&releaseMask == 0 {
+		b.SetOption("ascii_mode", !b.GetOption("ascii_mode"))
+		return true
 	}
 	if b.asciiMode && b.composition == "" && charCode >= 0x20 {
 		return false
@@ -267,6 +281,7 @@ func (b *testBackend) State() rimeState {
 }
 
 func (b *testBackend) SetOption(name string, value bool) {
+	b.setOptionCalls++
 	if b.options == nil {
 		b.options = map[string]bool{}
 	}
@@ -280,6 +295,7 @@ func (b *testBackend) SetOption(name string, value bool) {
 }
 
 func (b *testBackend) GetOption(name string) bool {
+	b.getOptionCalls++
 	if b.options != nil {
 		if value, ok := b.options[name]; ok {
 			return value
@@ -2648,6 +2664,7 @@ func TestHandleRequestSyncsSharedInputStateAcrossInstances(t *testing.T) {
 	if !second.inputStateShared {
 		t.Fatal("expected second instance to enable shared input state")
 	}
+	second.createSession(nil)
 	if !second.backend.GetOption("ascii_mode") {
 		t.Fatal("expected ascii_mode synced to enabled")
 	}
@@ -2696,11 +2713,128 @@ func TestHandleRequestSyncsDynamicSharedOptionsAcrossInstances(t *testing.T) {
 	if resp.ReturnValue != 1 {
 		t.Fatalf("expected onMenu handled, got %d", resp.ReturnValue)
 	}
+	second.createSession(nil)
 	if !second.backend.GetOption("emoji") {
 		t.Fatal("expected dynamic emoji option synced to enabled")
 	}
 	if !second.backend.GetOption("ascii_mode") {
 		t.Fatal("expected ascii_mode synced to enabled")
+	}
+}
+
+func TestProcessKeySyncsSharedInputStateAfterShiftAndCapsToggle(t *testing.T) {
+	testCases := []struct {
+		name     string
+		req      *imecore.Request
+		isUp     bool
+		expected bool
+	}{
+		{
+			name: "shift",
+			req: &imecore.Request{
+				KeyCode:   vkShift,
+				KeyStates: make(imecore.KeyStates, 256),
+			},
+			isUp:     true,
+			expected: true,
+		},
+		{
+			name: "caps",
+			req: &imecore.Request{
+				KeyCode:   vkCapital,
+				KeyStates: make(imecore.KeyStates, 256),
+			},
+			isUp:     false,
+			expected: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("APPDATA", t.TempDir())
+			resetSharedAppearanceConfigForTest()
+
+			first := newTestIME()
+			first.inputStateShared = true
+			first.captureSharedInputStateFromBackend()
+			first.saveAppearancePrefs()
+
+			first.processKey(tc.req, tc.isUp)
+			if got := first.backend.GetOption("ascii_mode"); got != tc.expected {
+				t.Fatalf("expected first instance ascii_mode=%t after %s toggle, got %t", tc.expected, tc.name, got)
+			}
+
+			second := newTestIME()
+			resp := second.HandleRequest(&imecore.Request{
+				SeqNum: 18,
+				Method: "onMenu",
+				ID:     imecore.FlexibleID{String: "settings"},
+			})
+			if resp.ReturnValue != 1 {
+				t.Fatalf("expected onMenu handled, got %d", resp.ReturnValue)
+			}
+			second.createSession(nil)
+
+			if got := second.backend.GetOption("ascii_mode"); got != tc.expected {
+				t.Fatalf("expected second instance ascii_mode=%t after %s shared sync, got %t", tc.expected, tc.name, got)
+			}
+		})
+	}
+}
+
+func TestCreateSessionAppliesSharedInputStateOnlyForNewSession(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	resetSharedAppearanceConfigForTest()
+
+	ime := newTestIME()
+	ime.inputStateShared = true
+	ime.sharedOptions = map[string]bool{
+		"ascii_mode":  true,
+		"full_shape":  true,
+		"ascii_punct": true,
+	}
+	backend := ime.backend.(*testBackend)
+
+	ime.createSession(nil)
+	firstApplyCalls := backend.setOptionCalls
+	if firstApplyCalls != len(ime.sharedOptions) {
+		t.Fatalf("expected first createSession to apply %d shared options, got %d", len(ime.sharedOptions), firstApplyCalls)
+	}
+
+	ime.createSession(nil)
+	if backend.setOptionCalls != firstApplyCalls {
+		t.Fatalf("expected repeated createSession to skip shared apply, got %d total SetOption calls", backend.setOptionCalls)
+	}
+}
+
+func TestProcessKeySkipsSharedStateSyncForRegularTyping(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	resetSharedAppearanceConfigForTest()
+
+	ime := newTestIME()
+	ime.inputStateShared = true
+	ime.sharedOptions = map[string]bool{
+		"ascii_mode": false,
+	}
+	backend := ime.backend.(*testBackend)
+
+	ime.createSession(nil)
+	backend.setOptionCalls = 0
+	backend.getOptionCalls = 0
+
+	handled := ime.processKey(&imecore.Request{
+		KeyCode:   'N',
+		CharCode:  'n',
+		KeyStates: make(imecore.KeyStates, 256),
+	}, false)
+	if !handled {
+		t.Fatal("expected regular typing key to be handled")
+	}
+	if backend.setOptionCalls != 0 {
+		t.Fatalf("expected regular typing to avoid shared SetOption calls, got %d", backend.setOptionCalls)
+	}
+	if backend.getOptionCalls != 0 {
+		t.Fatalf("expected regular typing to avoid shared GetOption calls, got %d", backend.getOptionCalls)
 	}
 }
 

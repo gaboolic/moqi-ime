@@ -162,6 +162,17 @@ func (b *nativeBackend) ensureSessionLocked() bool {
 	return ok
 }
 
+func (b *nativeBackend) HasSession() bool {
+	if b.sessionID == 0 {
+		return false
+	}
+	if !rimeRuntime.tryBeginOperation() {
+		return false
+	}
+	defer rimeRuntime.endOperation()
+	return b.sessionID != 0 && FindSession(b.sessionID)
+}
+
 func (b *nativeBackend) EnsureSession() bool {
 	if !rimeRuntime.tryBeginOperation() {
 		return false

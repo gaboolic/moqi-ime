@@ -13,6 +13,7 @@ type fakeBackend struct {
 	state             rimeState
 	clearCompositionN int
 	processKeyN       int
+	session           bool
 }
 
 func (b *fakeBackend) Initialize(sharedDir, userDir string, firstRun bool) bool {
@@ -27,11 +28,18 @@ func (b *fakeBackend) SyncUserData() bool {
 	return true
 }
 
+func (b *fakeBackend) HasSession() bool {
+	return b.session
+}
+
 func (b *fakeBackend) EnsureSession() bool {
+	b.session = true
 	return true
 }
 
-func (b *fakeBackend) DestroySession() {}
+func (b *fakeBackend) DestroySession() {
+	b.session = false
+}
 
 func (b *fakeBackend) ClearComposition() {
 	b.clearCompositionN++
