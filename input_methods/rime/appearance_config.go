@@ -28,6 +28,7 @@ type appearanceConfig struct {
 	SharedAsciiMode             *bool           `json:"shared_ascii_mode,omitempty"`
 	SharedFullShape             *bool           `json:"shared_full_shape,omitempty"`
 	SharedTraditionalization    *bool           `json:"shared_traditionalization,omitempty"`
+	AutoPairQuotes              *bool           `json:"auto_pair_quotes,omitempty"`
 }
 
 var appearanceState struct {
@@ -78,6 +79,7 @@ func cloneAppearanceConfig(cfg appearanceConfig) appearanceConfig {
 		SharedAsciiMode:             cloneBoolPtr(cfg.SharedAsciiMode),
 		SharedFullShape:             cloneBoolPtr(cfg.SharedFullShape),
 		SharedTraditionalization:    cloneBoolPtr(cfg.SharedTraditionalization),
+		AutoPairQuotes:              cloneBoolPtr(cfg.AutoPairQuotes),
 	}
 }
 
@@ -295,6 +297,9 @@ func (ime *IME) applyAppearanceConfig(cfg appearanceConfig) {
 	if cfg.SharedTraditionalization != nil {
 		ime.sharedOptions["traditionalization"] = *cfg.SharedTraditionalization
 	}
+	if cfg.AutoPairQuotes != nil {
+		ime.autoPairQuotes = *cfg.AutoPairQuotes
+	}
 }
 
 func (ime *IME) loadAppearancePrefs() {
@@ -344,6 +349,8 @@ func (ime *IME) saveAppearancePrefs() {
 	}
 	inputStateShared := ime.inputStateShared
 	cfg.InputStateShared = &inputStateShared
+	autoPairQuotes := ime.autoPairQuotes
+	cfg.AutoPairQuotes = &autoPairQuotes
 	if !isBuiltinTheme(theme) || theme == "custom" {
 		backgroundColor := ime.style.CandidateBackgroundColor
 		highlightColor := ime.style.CandidateHighlightColor
@@ -412,6 +419,7 @@ func (ime *IME) customizeUIMap() map[string]interface{} {
 		"candTextColor":          normalizeColor(ime.style.CandidateTextColor),
 		"candHighlightTextColor": normalizeColor(ime.style.CandidateHighlightTextColor),
 		"inlinePreedit":          ime.inlinePreeditEnabled(),
+		"autoPairQuotes":         ime.autoPairQuotes,
 	}
 }
 

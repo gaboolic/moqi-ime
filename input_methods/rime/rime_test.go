@@ -1373,6 +1373,68 @@ func TestBuildMenuIncludesSharedInputStateToggle(t *testing.T) {
 	}
 }
 
+func TestBuildMenuIncludesInputSettingsSubmenu(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+
+	items := ime.buildMenu()
+	var inputSettingsMenu map[string]interface{}
+	for _, item := range items {
+		if text, _ := item["text"].(string); text == "输入设置" {
+			inputSettingsMenu = item
+			break
+		}
+	}
+	if inputSettingsMenu == nil {
+		t.Fatalf("expected input settings menu, got %#v", items)
+	}
+
+	submenu, ok := inputSettingsMenu["submenu"].([]map[string]interface{})
+	if !ok || len(submenu) != 1 {
+		t.Fatalf("expected one input settings item, got %#v", inputSettingsMenu["submenu"])
+	}
+	if text, _ := submenu[0]["text"].(string); text != "自动插入成对引号" {
+		t.Fatalf("unexpected input settings item: %#v", submenu[0])
+	}
+	if checked, _ := submenu[0]["checked"].(bool); checked {
+		t.Fatalf("expected auto pair quotes disabled by default, got %#v", submenu[0])
+	}
+}
+
+func TestOnCommandTogglesAutoPairQuotes(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetSharedAppearanceConfigForTest()
+
+	ime := newIsolatedTestIME(t)
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 21,
+		ID:     imecore.FlexibleID{Int: ID_INPUT_AUTO_PAIR_QUOTES, IsInt: true},
+	}, imecore.NewResponse(21, true))
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected auto pair quotes command handled, got %d", resp.ReturnValue)
+	}
+	if !ime.autoPairQuotes {
+		t.Fatal("expected auto pair quotes enabled")
+	}
+	if got, ok := resp.CustomizeUI["autoPairQuotes"].(bool); !ok || !got {
+		t.Fatalf("expected customizeUI autoPairQuotes true, got %#v", resp.CustomizeUI["autoPairQuotes"])
+	}
+
+	configPath := filepath.Join(appData, APP, "Rime", appearanceConfigFileName)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("expected appearance config written to disk: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatalf("expected valid appearance config json: %v", err)
+	}
+	if got := persisted["auto_pair_quotes"]; got != true {
+		t.Fatalf("expected persisted auto_pair_quotes true, got %#v", got)
+	}
+}
+
 func TestFillResponseFromBackendStateAppliesCandidateCount(t *testing.T) {
 	ime := newIsolatedTestIME(t)
 	ime.style.CandidateCount = 5
@@ -1606,6 +1668,8 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	if !ime.applyAppearanceCommand(ID_APPEARANCE_HLTEXT_WHITE) {
 		t.Fatal("expected highlight text color command handled")
 	}
+	ime.autoPairQuotes = true
+	ime.saveAppearancePrefs()
 
 	configPath := filepath.Join(appData, APP, "Rime", appearanceConfigFileName)
 	data, err := os.ReadFile(configPath)
@@ -1641,6 +1705,9 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	if got := persisted["candidate_highlight_text_color"]; got != "#ffffff" {
 		t.Fatalf("expected persisted highlight text color, got %#v", got)
 	}
+	if got := persisted["auto_pair_quotes"]; got != true {
+		t.Fatalf("expected persisted auto_pair_quotes true, got %#v", got)
+	}
 
 	resetSharedAppearanceConfigForTest()
 	reloaded := newTestIME()
@@ -1672,6 +1739,9 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	}
 	if reloaded.style.CandidateTheme != "custom" {
 		t.Fatalf("expected reloaded theme custom for custom colors, got %q", reloaded.style.CandidateTheme)
+	}
+	if !reloaded.autoPairQuotes {
+		t.Fatal("expected reloaded auto pair quotes enabled")
 	}
 }
 

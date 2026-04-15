@@ -81,6 +81,7 @@ const (
 	ID_APPEARANCE_CAND_COUNT_7        = 192
 	ID_APPEARANCE_CAND_COUNT_9        = 193
 	ID_SHARED_INPUT_STATE             = 210
+	ID_INPUT_AUTO_PAIR_QUOTES         = 220
 
 	aiSelectKeys     = "123456789"
 	aiHotkeyKeyCode  = 0x47 // G
@@ -174,6 +175,7 @@ type IME struct {
 	appearanceVersion   uint64
 	inputStateShared    bool
 	sharedOptions       map[string]bool
+	autoPairQuotes      bool
 }
 
 type aiAsyncResult struct {
@@ -434,6 +436,15 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 			ime.toggleInputStateShared()
 			resp.ReturnValue = 1
 			ime.updateLangStatus(req, resp)
+			return resp
+		}
+		if commandID == ID_INPUT_AUTO_PAIR_QUOTES {
+			ime.autoPairQuotes = !ime.autoPairQuotes
+			ime.saveAppearancePrefs()
+			resp.CustomizeUI = ime.customizeUIMap()
+			ime.fillResponseFromCurrentState(resp)
+			ime.updateLangStatus(req, resp)
+			resp.ReturnValue = 1
 			return resp
 		}
 		if ime.handleSwitchCommand(commandID) {
@@ -1719,7 +1730,7 @@ func (ime *IME) iconPath(name string) string {
 func (ime *IME) buildMenu() []map[string]interface{} {
 	menuSwitches := ime.menuSwitches()
 	schemaItems := ime.schemaMenuItems()
-	items := make([]map[string]interface{}, 0, len(menuSwitches)+8)
+	items := make([]map[string]interface{}, 0, len(menuSwitches)+9)
 	for i, sw := range menuSwitches {
 		enabled := ime.backend != nil && ime.backend.GetOption(sw.Name)
 		items = append(items, map[string]interface{}{
@@ -1807,6 +1818,9 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 				{"id": ID_APPEARANCE_HLTEXT_WHITE, "text": "白色", "checked": strings.EqualFold(ime.style.CandidateHighlightTextColor, "#ffffff")},
 				{"id": ID_APPEARANCE_HLTEXT_BLUE, "text": "深蓝", "checked": strings.EqualFold(ime.style.CandidateHighlightTextColor, "#1d4ed8")},
 			}},
+		}},
+		map[string]interface{}{"text": "输入设置", "submenu": []map[string]interface{}{
+			{"id": ID_INPUT_AUTO_PAIR_QUOTES, "text": "自动插入成对引号", "checked": ime.autoPairQuotes},
 		}},
 		map[string]interface{}{"id": ID_DEPLOY, "text": "刷新配置(&R)"},
 		map[string]interface{}{"text": "打开文件夹(&O)", "submenu": []map[string]interface{}{
