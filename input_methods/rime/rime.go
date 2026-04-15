@@ -84,10 +84,12 @@ const (
 	ID_APPEARANCE_CAND_COUNT_9        = 193
 	ID_SHARED_INPUT_STATE             = 210
 	ID_INPUT_AUTO_PAIR_QUOTES         = 220
+	ID_INPUT_SEMICOLON_SELECT_SECOND  = 221
 
 	aiSelectKeys     = "123456789"
 	aiHotkeyKeyCode  = 0x47 // G
 	aiCandidateLimit = 3
+	secondSelectChar = ';'
 )
 
 type Style struct {
@@ -116,6 +118,8 @@ type candidateItem struct {
 type rimeState struct {
 	CommitString    string
 	Composition     string
+	RawInput        string
+	PageNo          int
 	CursorPos       int
 	SelStart        int
 	SelEnd          int
@@ -143,41 +147,49 @@ type rimeBackend interface {
 	CurrentSchemaID() string
 	SelectSchema(schemaID string) bool
 	SetCandidatePageSize(pageSize int) bool
+	SelectCandidate(index int) bool
 }
 
 type IME struct {
 	mu sync.Mutex
 	*imecore.TextServiceBase
-	iconDir             string
-	style               Style
-	selectKeys          string
-	lastKeyDownCode     int
-	lastKeySkip         int
-	lastKeyDownRet      bool
-	lastKeyUpCode       int
-	lastKeyUpRet        bool
-	keyComposing        bool
-	backend             rimeBackend
-	aiEnabled           bool
-	aiActive            bool
-	aiPending           bool
-	aiPrompt            string
-	aiCandidates        []string
-	aiCandidateCursor   int
-	aiError             string
-	aiTriggerPending    bool
-	aiConsumeKeyUpCode  int
-	aiPreviousCommit    string
-	aiActions           []aiAction
-	aiCurrentAction     *aiAction
-	aiReviewGenerator   func(aiGenerateRequest) ([]string, error)
-	aiResultCh          chan aiAsyncResult
-	asyncResponseSender func(*imecore.Response)
-	aiRequestSeq        uint64
-	appearanceVersion   uint64
-	inputStateShared    bool
-	sharedOptions       map[string]bool
-	autoPairQuotes      bool
+	iconDir                      string
+	style                        Style
+	selectKeys                   string
+	lastKeyDownCode              int
+	lastKeySkip                  int
+	lastKeyDownRet               bool
+	lastKeyUpCode                int
+	lastKeyUpRet                 bool
+	keyComposing                 bool
+	backend                      rimeBackend
+	aiEnabled                    bool
+	aiActive                     bool
+	aiPending                    bool
+	aiPrompt                     string
+	aiCandidates                 []string
+	aiCandidateCursor            int
+	aiError                      string
+	aiTriggerPending             bool
+	aiConsumeKeyUpCode           int
+	aiPreviousCommit             string
+	aiActions                    []aiAction
+	aiCurrentAction              *aiAction
+	aiReviewGenerator            func(aiGenerateRequest) ([]string, error)
+	aiResultCh                   chan aiAsyncResult
+	asyncResponseSender          func(*imecore.Response)
+	aiRequestSeq                 uint64
+	appearanceVersion            uint64
+	inputStateShared             bool
+	sharedOptions                map[string]bool
+	autoPairQuotes               bool
+	semicolonSelectSecond        bool
+	rawInputTracked              string
+	customPhraseComposition      string
+	customPhraseCandidates       []candidateItem
+	customPhraseCursor           int
+	customPhraseConsumeKeyUpCode int
+	secondSelectConsumeKeyUpCode int
 }
 
 type aiAsyncResult struct {
@@ -314,6 +326,12 @@ func (ime *IME) filterKeyDown(req *imecore.Request, resp *imecore.Response) *ime
 	if ime.handleAIKeyDownFilter(req, resp) {
 		return resp
 	}
+	if ime.handleCustomPhraseKeyDownFilter(req, resp) {
+		return resp
+	}
+	if ime.handleSecondSelectionKeyDownFilter(req, resp) {
+		return resp
+	}
 	if ime.lastKeyDownCode == req.KeyCode {
 		ime.lastKeySkip++
 		if ime.lastKeySkip >= 2 {
@@ -334,6 +352,12 @@ func (ime *IME) filterKeyUp(req *imecore.Request, resp *imecore.Response) *imeco
 	if ime.handleAIKeyUpFilter(req, resp) {
 		return resp
 	}
+	if ime.handleCustomPhraseKeyUpFilter(req, resp) {
+		return resp
+	}
+	if ime.handleSecondSelectionKeyUpFilter(req, resp) {
+		return resp
+	}
 	if ime.lastKeyUpCode == req.KeyCode {
 		ime.lastKeyUpCode = 0
 	} else {
@@ -350,6 +374,12 @@ func (ime *IME) onKeyDown(req *imecore.Request, resp *imecore.Response) *imecore
 	if ime.handleAIKeyDown(req, resp) {
 		return resp
 	}
+	if ime.handleCustomPhraseKeyDown(req, resp) {
+		return resp
+	}
+	if ime.handleSecondSelectionKeyDown(req, resp) {
+		return resp
+	}
 	if ime.shouldPassThroughModifierOnKey(req, ime.lastKeyDownRet) {
 		resp.ReturnValue = 0
 		return resp
@@ -362,6 +392,12 @@ func (ime *IME) onKeyUp(req *imecore.Request, resp *imecore.Response) *imecore.R
 	if ime.handleAIKeyUp(req, resp) {
 		return resp
 	}
+	if ime.handleCustomPhraseKeyUp(req, resp) {
+		return resp
+	}
+	if ime.handleSecondSelectionKeyUp(req, resp) {
+		return resp
+	}
 	if ime.shouldPassThroughModifierOnKey(req, ime.lastKeyUpRet) {
 		resp.ReturnValue = 0
 		return resp
@@ -372,6 +408,9 @@ func (ime *IME) onKeyUp(req *imecore.Request, resp *imecore.Response) *imecore.R
 
 func (ime *IME) onCompositionTerminated(req *imecore.Request, resp *imecore.Response) *imecore.Response {
 	ime.resetAIState()
+	ime.resetCustomPhraseOverlay()
+	ime.resetSecondSelectionShortcut()
+	ime.resetTrackedRawInput()
 	if req.Forced {
 		ime.destroySession(resp)
 	} else if ime.backend != nil {
@@ -380,6 +419,225 @@ func (ime *IME) onCompositionTerminated(req *imecore.Request, resp *imecore.Resp
 	}
 	resp.ReturnValue = 1
 	return resp
+}
+
+func isSecondSelectionShortcut(req *imecore.Request) bool {
+	if req == nil {
+		return false
+	}
+	if req.KeyStates.IsKeyDown(vkShift) || req.KeyStates.IsKeyDown(vkControl) || req.KeyStates.IsKeyDown(vkMenu) {
+		return false
+	}
+	if req.KeyCode == vkOem1 {
+		return true
+	}
+	return req.CharCode == int(secondSelectChar)
+}
+
+func isSemicolonDebugEvent(req *imecore.Request) bool {
+	if req == nil {
+		return false
+	}
+	return req.KeyCode == vkOem1 || req.CharCode == int(secondSelectChar) || req.CharCode == int('；')
+}
+
+func summarizeCandidateTexts(items []candidateItem, limit int) []string {
+	if len(items) == 0 || limit <= 0 {
+		return nil
+	}
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		result = append(result, item.Text)
+	}
+	return result
+}
+
+func (ime *IME) selectionKeyIndex(req *imecore.Request) (int, bool) {
+	if req == nil {
+		return 0, false
+	}
+	if req.KeyCode >= '1' && req.KeyCode <= '9' {
+		return req.KeyCode - '1', true
+	}
+	if req.CharCode >= '1' && req.CharCode <= '9' {
+		return req.CharCode - '1', true
+	}
+	if ime.semicolonSelectSecond && isSecondSelectionShortcut(req) {
+		return 1, true
+	}
+	return 0, false
+}
+
+func selectionShortcutConsumeCode(req *imecore.Request) int {
+	if req == nil {
+		return 0
+	}
+	if isSecondSelectionShortcut(req) {
+		return int(secondSelectChar)
+	}
+	if req.CharCode >= '1' && req.CharCode <= '9' {
+		return req.CharCode
+	}
+	if req.KeyCode >= '1' && req.KeyCode <= '9' {
+		return req.KeyCode
+	}
+	if req.KeyCode != 0 {
+		return req.KeyCode
+	}
+	return req.CharCode
+}
+
+func requestCharCode(req *imecore.Request) int {
+	if req == nil {
+		return 0
+	}
+	if req.CharCode != 0 {
+		return req.CharCode
+	}
+	if req.KeyCode >= 'A' && req.KeyCode <= 'Z' {
+		return req.KeyCode + 32
+	}
+	return 0
+}
+
+func (ime *IME) resetTrackedRawInput() {
+	ime.rawInputTracked = ""
+}
+
+func (ime *IME) trimTrackedRawInput() {
+	if ime.rawInputTracked == "" {
+		return
+	}
+	runes := []rune(ime.rawInputTracked)
+	ime.rawInputTracked = string(runes[:len(runes)-1])
+}
+
+func (ime *IME) updateTrackedRawInput(req *imecore.Request, backendRet bool) {
+	if req == nil || !backendRet {
+		return
+	}
+	keyCode := req.KeyCode
+	charCode := requestCharCode(req)
+
+	switch keyCode {
+	case vkBack:
+		ime.trimTrackedRawInput()
+		return
+	case vkEscape, vkReturn, vkSpace:
+		ime.resetTrackedRawInput()
+		return
+	}
+
+	if _, ok := ime.selectionKeyIndex(req); ok {
+		ime.resetTrackedRawInput()
+		return
+	}
+
+	if charCode >= 'a' && charCode <= 'z' {
+		ime.rawInputTracked += string(rune(charCode))
+		return
+	}
+	if charCode == '\'' && ime.rawInputTracked != "" && !strings.HasSuffix(ime.rawInputTracked, "'") {
+		ime.rawInputTracked += "'"
+		return
+	}
+	if ime.rawInputTracked != "" && charCode >= 0x20 && charCode != '\'' {
+		ime.resetTrackedRawInput()
+	}
+}
+
+func (ime *IME) resetSecondSelectionShortcut() {
+	ime.secondSelectConsumeKeyUpCode = 0
+}
+
+func (ime *IME) handleSecondSelectionKeyDownFilter(req *imecore.Request, resp *imecore.Response) bool {
+	shortcut := isSecondSelectionShortcut(req)
+	if !ime.semicolonSelectSecond || !shortcut {
+		if isSemicolonDebugEvent(req) {
+			log.Printf("semicolon filter backend ignored enabled=%t shortcut=%t key=%d char=%d shift=%t ctrl=%t alt=%t",
+				ime.semicolonSelectSecond,
+				shortcut,
+				req.KeyCode,
+				req.CharCode,
+				req.KeyStates.IsKeyDown(vkShift),
+				req.KeyStates.IsKeyDown(vkControl),
+				req.KeyStates.IsKeyDown(vkMenu),
+			)
+		}
+		return false
+	}
+	state, ok := ime.currentVisibleBackendState()
+	if !ok || strings.TrimSpace(state.Composition) == "" || len(state.Candidates) < 2 {
+		log.Printf("semicolon filter backend unavailable ok=%t composition=%q candidates=%v",
+			ok,
+			state.Composition,
+			summarizeCandidateTexts(state.Candidates, 6),
+		)
+		return false
+	}
+	ime.secondSelectConsumeKeyUpCode = selectionShortcutConsumeCode(req)
+	log.Printf("semicolon filter backend handled consume=%d composition=%q candidates=%v",
+		ime.secondSelectConsumeKeyUpCode,
+		state.Composition,
+		summarizeCandidateTexts(state.Candidates, 6),
+	)
+	resp.ReturnValue = 1
+	return true
+}
+
+func (ime *IME) handleSecondSelectionKeyUpFilter(req *imecore.Request, resp *imecore.Response) bool {
+	if ime.secondSelectConsumeKeyUpCode == 0 || selectionShortcutConsumeCode(req) != ime.secondSelectConsumeKeyUpCode {
+		return false
+	}
+	resp.ReturnValue = 1
+	return true
+}
+
+func (ime *IME) handleSecondSelectionKeyDown(req *imecore.Request, resp *imecore.Response) bool {
+	if ime.secondSelectConsumeKeyUpCode == 0 || selectionShortcutConsumeCode(req) != ime.secondSelectConsumeKeyUpCode {
+		return false
+	}
+	state, ok := ime.currentVisibleBackendState()
+	if !ok || strings.TrimSpace(state.Composition) == "" || len(state.Candidates) < 2 {
+		log.Printf("semicolon onKeyDown backend fallback ok=%t composition=%q candidates=%v",
+			ok,
+			state.Composition,
+			summarizeCandidateTexts(state.Candidates, 6),
+		)
+		ime.fillResponseFromCurrentState(resp)
+		resp.ReturnValue = 1
+		return true
+	}
+	log.Printf("semicolon onKeyDown backend selecting visibleIndex=1 text=%q composition=%q candidates=%v",
+		state.Candidates[1].Text,
+		state.Composition,
+		summarizeCandidateTexts(state.Candidates, 6),
+	)
+	if ime.commitBackendOverlayCandidate(resp, 1) {
+		log.Printf("semicolon onKeyDown backend committed commit=%q", resp.CommitString)
+		resp.ReturnValue = 1
+		return true
+	}
+	log.Printf("semicolon onKeyDown backend select failed composition=%q candidates=%v",
+		state.Composition,
+		summarizeCandidateTexts(state.Candidates, 6),
+	)
+	ime.fillResponseFromCurrentState(resp)
+	resp.ReturnValue = 1
+	return true
+}
+
+func (ime *IME) handleSecondSelectionKeyUp(req *imecore.Request, resp *imecore.Response) bool {
+	if ime.secondSelectConsumeKeyUpCode == 0 || selectionShortcutConsumeCode(req) != ime.secondSelectConsumeKeyUpCode {
+		return false
+	}
+	ime.resetSecondSelectionShortcut()
+	ime.fillResponseFromCurrentState(resp)
+	resp.ReturnValue = 1
+	return true
 }
 
 func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore.Response {
@@ -423,6 +681,11 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 			resp.ReturnValue = 0
 			return resp
 		}
+	case ID_OPEN_CUSTOM_PHRASE:
+		if !ime.openCustomPhraseFile(resp) {
+			resp.ReturnValue = 0
+			return resp
+		}
 	case ID_USER_DIR:
 		ime.openPath(ime.userDir())
 	case ID_SHARED_DIR:
@@ -447,6 +710,15 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 		}
 		if commandID == ID_INPUT_AUTO_PAIR_QUOTES {
 			ime.autoPairQuotes = !ime.autoPairQuotes
+			ime.saveAppearancePrefs()
+			resp.CustomizeUI = ime.customizeUIMap()
+			ime.fillResponseFromCurrentState(resp)
+			ime.updateLangStatus(req, resp)
+			resp.ReturnValue = 1
+			return resp
+		}
+		if commandID == ID_INPUT_SEMICOLON_SELECT_SECOND {
+			ime.semicolonSelectSecond = !ime.semicolonSelectSecond
 			ime.saveAppearancePrefs()
 			resp.CustomizeUI = ime.customizeUIMap()
 			ime.fillResponseFromCurrentState(resp)
@@ -589,6 +861,9 @@ func (ime *IME) processKey(req *imecore.Request, isUp bool) bool {
 	translatedKeyCode := translateKeyCode(req)
 	modifiers := translateModifiers(req, isUp)
 	backendRet := ime.backend.ProcessKey(req, translatedKeyCode, modifiers)
+	if !isUp {
+		ime.updateTrackedRawInput(req, backendRet)
+	}
 	handled := backendRet
 	if backendRet {
 		ime.logShortcutTrace(req, isUp, translatedKeyCode, modifiers, backendRet, true)
@@ -614,8 +889,14 @@ func (ime *IME) handleAIKeyDownFilter(req *imecore.Request, resp *imecore.Respon
 		return false
 	}
 	if ime.aiActive {
-		if ime.isAIHandledKey(req.KeyCode) {
-			ime.aiConsumeKeyUpCode = req.KeyCode
+		if ime.isAIHandledKey(req) {
+			ime.aiConsumeKeyUpCode = selectionShortcutConsumeCode(req)
+			if isSemicolonDebugEvent(req) {
+				log.Printf("semicolon filter ai handled consume=%d ai=%v",
+					ime.aiConsumeKeyUpCode,
+					ime.aiCandidates,
+				)
+			}
 			resp.ReturnValue = 1
 			return true
 		}
@@ -636,7 +917,7 @@ func (ime *IME) handleAIKeyUpFilter(req *imecore.Request, resp *imecore.Response
 	if req == nil {
 		return false
 	}
-	if ime.aiConsumeKeyUpCode != 0 && req.KeyCode == ime.aiConsumeKeyUpCode {
+	if ime.aiConsumeKeyUpCode != 0 && selectionShortcutConsumeCode(req) == ime.aiConsumeKeyUpCode {
 		if ime.aiActive {
 			ime.fillAIResponse(resp)
 		} else {
@@ -645,7 +926,7 @@ func (ime *IME) handleAIKeyUpFilter(req *imecore.Request, resp *imecore.Response
 		resp.ReturnValue = 1
 		return true
 	}
-	if ime.aiActive && ime.isAIHandledKey(req.KeyCode) {
+	if ime.aiActive && ime.isAIHandledKey(req) {
 		ime.fillAIResponse(resp)
 		resp.ReturnValue = 1
 		return true
@@ -671,16 +952,25 @@ func (ime *IME) handleAIKeyDown(req *imecore.Request, resp *imecore.Response) bo
 		return false
 	}
 	totalCandidates, aiCandidates := ime.visibleAIOverlayCounts()
-	switch {
-	case ime.isAISelectionKey(req.KeyCode):
-		index := req.KeyCode - 0x31
+	if index, ok := ime.selectionKeyIndex(req); ok {
 		if index >= 0 && index < aiCandidates {
+			if isSemicolonDebugEvent(req) {
+				log.Printf("semicolon onKeyDown ai selecting aiIndex=%d ai=%v", index, ime.aiCandidates)
+			}
 			ime.aiCandidateCursor = index
 			ime.commitAICandidate(resp)
 			resp.ReturnValue = 1
 			return true
 		}
 		if index >= aiCandidates && index < totalCandidates {
+			if isSemicolonDebugEvent(req) {
+				state, _ := ime.currentVisibleBackendState()
+				log.Printf("semicolon onKeyDown ai selecting backendIndex=%d ai=%v backend=%v",
+					index-aiCandidates,
+					ime.aiCandidates,
+					summarizeCandidateTexts(state.Candidates, 6),
+				)
+			}
 			if ime.commitBackendOverlayCandidate(resp, index-aiCandidates) {
 				resp.ReturnValue = 1
 				return true
@@ -689,21 +979,23 @@ func (ime *IME) handleAIKeyDown(req *imecore.Request, resp *imecore.Response) bo
 		ime.fillAIResponse(resp)
 		resp.ReturnValue = 1
 		return true
-	case req.KeyCode == vkUp:
+	}
+	switch req.KeyCode {
+	case vkUp:
 		if ime.aiCandidateCursor > 0 {
 			ime.aiCandidateCursor--
 		}
 		ime.fillAIResponse(resp)
 		resp.ReturnValue = 1
 		return true
-	case req.KeyCode == vkDown:
+	case vkDown:
 		if ime.aiCandidateCursor < totalCandidates-1 {
 			ime.aiCandidateCursor++
 		}
 		ime.fillAIResponse(resp)
 		resp.ReturnValue = 1
 		return true
-	case req.KeyCode == vkReturn || req.KeyCode == vkSpace:
+	case vkReturn, vkSpace:
 		if ime.aiCandidateCursor < aiCandidates {
 			ime.commitAICandidate(resp)
 			resp.ReturnValue = 1
@@ -716,7 +1008,7 @@ func (ime *IME) handleAIKeyDown(req *imecore.Request, resp *imecore.Response) bo
 		ime.fillAIResponse(resp)
 		resp.ReturnValue = 1
 		return true
-	case req.KeyCode == vkEscape:
+	case vkEscape:
 		ime.resetAIState()
 		resp.ReturnValue = boolToInt(ime.onKey(req, resp))
 		return true
@@ -730,7 +1022,7 @@ func (ime *IME) handleAIKeyUp(req *imecore.Request, resp *imecore.Response) bool
 	if req == nil {
 		return false
 	}
-	if ime.aiConsumeKeyUpCode != 0 && req.KeyCode == ime.aiConsumeKeyUpCode {
+	if ime.aiConsumeKeyUpCode != 0 && selectionShortcutConsumeCode(req) == ime.aiConsumeKeyUpCode {
 		ime.aiConsumeKeyUpCode = 0
 		if ime.aiActive {
 			ime.fillAIResponse(resp)
@@ -740,7 +1032,7 @@ func (ime *IME) handleAIKeyUp(req *imecore.Request, resp *imecore.Response) bool
 		resp.ReturnValue = 1
 		return true
 	}
-	if !ime.aiActive || !ime.isAIHandledKey(req.KeyCode) {
+	if !ime.aiActive || !ime.isAIHandledKey(req) {
 		return false
 	}
 	ime.fillAIResponse(resp)
@@ -764,12 +1056,14 @@ func (ime *IME) matchAIAction(req *imecore.Request) *aiAction {
 	return nil
 }
 
-func (ime *IME) isAISelectionKey(keyCode int) bool {
-	return keyCode >= 0x31 && keyCode <= 0x39
-}
-
-func (ime *IME) isAIHandledKey(keyCode int) bool {
-	return ime.isAISelectionKey(keyCode) || keyCode == vkUp || keyCode == vkDown || keyCode == vkReturn || keyCode == vkSpace || keyCode == vkEscape
+func (ime *IME) isAIHandledKey(req *imecore.Request) bool {
+	if _, ok := ime.selectionKeyIndex(req); ok {
+		return true
+	}
+	if req == nil {
+		return false
+	}
+	return req.KeyCode == vkUp || req.KeyCode == vkDown || req.KeyCode == vkReturn || req.KeyCode == vkSpace || req.KeyCode == vkEscape
 }
 
 func (ime *IME) triggerAIReview(action *aiAction) bool {
@@ -1008,6 +1302,7 @@ func (ime *IME) commitAICandidate(resp *imecore.Response) {
 	ime.rememberAICommit(resp.CommitString)
 	ime.clearResponse(resp)
 	ime.resetAIState()
+	ime.resetTrackedRawInput()
 	if ime.backend != nil {
 		ime.backend.ClearComposition()
 	}
@@ -1017,14 +1312,17 @@ func (ime *IME) commitBackendOverlayCandidate(resp *imecore.Response, backendInd
 	if resp == nil || backendIndex < 0 || backendIndex >= 9 {
 		return false
 	}
-	req := &imecore.Request{
-		KeyCode:   int('1') + backendIndex,
-		CharCode:  int('1') + backendIndex,
-		KeyStates: make(imecore.KeyStates, 256),
-	}
 	ime.resetAIState()
-	_ = ime.processKey(req, false)
-	resp.ReturnValue = boolToInt(ime.onKey(req, resp))
+	ime.resetCustomPhraseOverlay()
+	if ime.backend == nil || !ime.backendReady() {
+		return false
+	}
+	if !ime.backend.SelectCandidate(backendIndex) {
+		log.Printf("backend overlay select failed backendIndex=%d", backendIndex)
+		return false
+	}
+	log.Printf("backend overlay select succeeded backendIndex=%d", backendIndex)
+	resp.ReturnValue = boolToInt(ime.onKey(&imecore.Request{}, resp))
 	return true
 }
 
@@ -1162,6 +1460,9 @@ func (ime *IME) createSession(resp *imecore.Response) {
 
 func (ime *IME) destroySession(resp *imecore.Response) {
 	ime.resetAIState()
+	ime.resetCustomPhraseOverlay()
+	ime.resetSecondSelectionShortcut()
+	ime.resetTrackedRawInput()
 	ime.clearResponse(resp)
 	if ime.backend != nil {
 		ime.backend.ClearComposition()
@@ -1303,6 +1604,7 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 	}
 	state, ok := ime.currentVisibleBackendState()
 	if !ok {
+		ime.resetCustomPhraseOverlay()
 		ime.clearResponse(resp)
 		ime.keyComposing = false
 		return false
@@ -1310,8 +1612,11 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 	if allowCommit && state.CommitString != "" {
 		resp.CommitString = state.CommitString
 		ime.rememberAICommit(state.CommitString)
+		ime.resetTrackedRawInput()
 	}
 	if state.Composition == "" {
+		ime.resetCustomPhraseOverlay()
+		ime.resetTrackedRawInput()
 		ime.clearResponse(resp)
 		ime.keyComposing = false
 		return true
@@ -1325,10 +1630,26 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 	resp.CompositionCursor = state.CursorPos
 	resp.SelStart = state.SelStart
 	resp.SelEnd = state.SelEnd
-	if len(state.Candidates) > 0 {
-		resp.CandidateList = ime.formatCandidates(state.Candidates)
-		resp.CandidateEntries = ime.candidateEntries(state.Candidates)
-		if state.CandidateCursor < 0 {
+	customPhraseCandidates := ime.visibleCustomPhraseCandidatesForState(state)
+	remainingCandidateCount := ime.candidateCount() - len(customPhraseCandidates)
+	if remainingCandidateCount < 0 {
+		customPhraseCandidates = customPhraseCandidates[:ime.candidateCount()]
+		remainingCandidateCount = 0
+	}
+	if len(state.Candidates) > remainingCandidateCount {
+		state.Candidates = append([]candidateItem(nil), state.Candidates[:remainingCandidateCount]...)
+	}
+	if len(state.Candidates) > 0 || len(customPhraseCandidates) > 0 {
+		resp.CandidateList = append(ime.formatCandidates(customPhraseCandidates), ime.formatCandidates(state.Candidates)...)
+		resp.CandidateEntries = append(ime.candidateEntries(customPhraseCandidates), ime.candidateEntries(state.Candidates)...)
+		if len(customPhraseCandidates) > 0 {
+			if ime.customPhraseCursor < 0 {
+				ime.customPhraseCursor = 0
+			} else if ime.customPhraseCursor >= len(resp.CandidateList) {
+				ime.customPhraseCursor = len(resp.CandidateList) - 1
+			}
+			resp.CandidateCursor = ime.customPhraseCursor
+		} else if state.CandidateCursor < 0 {
 			resp.CandidateCursor = 0
 		} else if state.CandidateCursor >= len(state.Candidates) {
 			resp.CandidateCursor = len(state.Candidates) - 1
@@ -1336,6 +1657,13 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 			resp.CandidateCursor = state.CandidateCursor
 		}
 		resp.ShowCandidates = true
+		if len(customPhraseCandidates) > 0 && len(resp.CandidateList) <= len(aiSelectKeys) {
+			selKeys := aiSelectKeys[:len(resp.CandidateList)]
+			if selKeys != ime.selectKeys {
+				resp.SetSelKeys = selKeys
+				ime.selectKeys = selKeys
+			}
+		}
 	} else {
 		resp.CandidateList = []string{}
 		resp.CandidateEntries = []imecore.CandidateEntry{}
@@ -1816,6 +2144,7 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 	}
 	if len(schemeSetItems) > 0 || len(schemaItems) > 0 {
 		items = append(items,
+			map[string]interface{}{"id": ID_OPEN_CUSTOM_PHRASE, "text": "打开自定义短语"},
 			map[string]interface{}{"id": ID_UPDATE_CONFIG, "text": "更新配置(&P)"},
 			map[string]interface{}{"id": ID_DEPLOY, "text": "刷新配置(&R)"},
 			map[string]interface{}{"text": ""},
@@ -1893,6 +2222,7 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 		}},
 		map[string]interface{}{"text": "输入设置", "submenu": []map[string]interface{}{
 			{"id": ID_INPUT_AUTO_PAIR_QUOTES, "text": "自动插入成对引号", "checked": ime.autoPairQuotes},
+			{"id": ID_INPUT_SEMICOLON_SELECT_SECOND, "text": "分号键 2 选", "checked": ime.semicolonSelectSecond},
 		}},
 		map[string]interface{}{"text": "打开文件夹(&O)", "submenu": []map[string]interface{}{
 			{"id": ID_USER_DIR, "text": "用户文件夹"},

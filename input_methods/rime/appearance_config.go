@@ -29,6 +29,7 @@ type appearanceConfig struct {
 	SharedFullShape             *bool           `json:"shared_full_shape,omitempty"`
 	SharedTraditionalization    *bool           `json:"shared_traditionalization,omitempty"`
 	AutoPairQuotes              *bool           `json:"auto_pair_quotes,omitempty"`
+	SemicolonSelectSecond       *bool           `json:"semicolon_select_second,omitempty"`
 }
 
 var appearanceState struct {
@@ -80,6 +81,7 @@ func cloneAppearanceConfig(cfg appearanceConfig) appearanceConfig {
 		SharedFullShape:             cloneBoolPtr(cfg.SharedFullShape),
 		SharedTraditionalization:    cloneBoolPtr(cfg.SharedTraditionalization),
 		AutoPairQuotes:              cloneBoolPtr(cfg.AutoPairQuotes),
+		SemicolonSelectSecond:       cloneBoolPtr(cfg.SemicolonSelectSecond),
 	}
 }
 
@@ -308,6 +310,9 @@ func (ime *IME) applyAppearanceConfig(cfg appearanceConfig) {
 	if cfg.AutoPairQuotes != nil {
 		ime.autoPairQuotes = *cfg.AutoPairQuotes
 	}
+	if cfg.SemicolonSelectSecond != nil {
+		ime.semicolonSelectSecond = *cfg.SemicolonSelectSecond
+	}
 }
 
 func (ime *IME) loadAppearancePrefs() {
@@ -382,6 +387,8 @@ func (ime *IME) saveAppearancePrefs() {
 	cfg.InputStateShared = &inputStateShared
 	autoPairQuotes := ime.autoPairQuotes
 	cfg.AutoPairQuotes = &autoPairQuotes
+	semicolonSelectSecond := ime.semicolonSelectSecond
+	cfg.SemicolonSelectSecond = &semicolonSelectSecond
 	if !isBuiltinTheme(theme) || theme == "custom" {
 		backgroundColor := ime.style.CandidateBackgroundColor
 		highlightColor := ime.style.CandidateHighlightColor
@@ -451,6 +458,7 @@ func (ime *IME) customizeUIMap() map[string]interface{} {
 		"candHighlightTextColor": normalizeColor(ime.style.CandidateHighlightTextColor),
 		"inlinePreedit":          ime.inlinePreeditEnabled(),
 		"autoPairQuotes":         ime.autoPairQuotes,
+		"semicolonSelectSecond":  ime.semicolonSelectSecond,
 	}
 }
 

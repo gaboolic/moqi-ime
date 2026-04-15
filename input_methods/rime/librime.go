@@ -166,7 +166,9 @@ var (
 		findSession           *syscall.LazyProc
 		destroySession        *syscall.LazyProc
 		processKey            *syscall.LazyProc
+		selectCandidate       *syscall.LazyProc
 		clearComposition      *syscall.LazyProc
+		getInput              *syscall.LazyProc
 		getCommit             *syscall.LazyProc
 		freeCommit            *syscall.LazyProc
 		getContext            *syscall.LazyProc
@@ -218,7 +220,9 @@ func loadRimeDLL(dllPath string) error {
 		findSession           *syscall.LazyProc
 		destroySession        *syscall.LazyProc
 		processKey            *syscall.LazyProc
+		selectCandidate       *syscall.LazyProc
 		clearComposition      *syscall.LazyProc
+		getInput              *syscall.LazyProc
 		getCommit             *syscall.LazyProc
 		freeCommit            *syscall.LazyProc
 		getContext            *syscall.LazyProc
@@ -255,7 +259,9 @@ func loadRimeDLL(dllPath string) error {
 		findSession:           dll.NewProc("RimeFindSession"),
 		destroySession:        dll.NewProc("RimeDestroySession"),
 		processKey:            dll.NewProc("RimeProcessKey"),
+		selectCandidate:       dll.NewProc("RimeSelectCandidateOnCurrentPage"),
 		clearComposition:      dll.NewProc("RimeClearComposition"),
+		getInput:              dll.NewProc("RimeGetInput"),
 		getCommit:             dll.NewProc("RimeGetCommit"),
 		freeCommit:            dll.NewProc("RimeFreeCommit"),
 		getContext:            dll.NewProc("RimeGetContext"),
@@ -391,6 +397,14 @@ func ProcessKey(sessionId RimeSessionId, keyCode, modifiers int) bool {
 
 func ClearComposition(sessionId RimeSessionId) {
 	rimeProcs.clearComposition.Call(uintptr(sessionId))
+}
+
+func GetInput(sessionId RimeSessionId) string {
+	if sessionId == 0 || !procAvailable(rimeProcs.getInput) {
+		return ""
+	}
+	r1, _, _ := rimeProcs.getInput.Call(uintptr(sessionId))
+	return cString((*byte)(unsafe.Pointer(r1)))
 }
 
 func GetComposition(sessionId RimeSessionId) (RimeComposition, bool) {
@@ -719,9 +733,12 @@ func SetSchemaPageSize(schemaID string, pageSize int) bool {
 	return boolResult(r1)
 }
 
-func SelectCandidate(sessionId RimeSessionId, index int) {
-	_ = sessionId
-	_ = index
+func SelectCandidate(sessionId RimeSessionId, index int) bool {
+	if sessionId == 0 || index < 0 || !procAvailable(rimeProcs.selectCandidate) {
+		return false
+	}
+	r1, _, _ := rimeProcs.selectCandidate.Call(uintptr(sessionId), uintptr(index))
+	return boolResult(r1)
 }
 
 func SelectPage(sessionId RimeSessionId, pageNo int) {

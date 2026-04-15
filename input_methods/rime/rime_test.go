@@ -38,6 +38,18 @@ func writeTestSchemeSetConfig(t *testing.T, appData, current string) {
 	}
 }
 
+func writeTestCustomPhraseFile(t *testing.T, appData, body string) string {
+	t.Helper()
+	configPath := filepath.Join(appData, APP, customPhraseFileName)
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("create custom phrase dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("write custom phrase file: %v", err)
+	}
+	return configPath
+}
+
 type testDictEntry struct {
 	code  string
 	words []candidateItem
@@ -46,6 +58,8 @@ type testDictEntry struct {
 type testBackend struct {
 	session           bool
 	composition       string
+	rawInput          string
+	pageNo            int
 	candidates        []candidateItem
 	commitString      string
 	asciiMode         bool
@@ -136,6 +150,7 @@ func (b *testBackend) DestroySession() {
 
 func (b *testBackend) ClearComposition() {
 	b.composition = ""
+	b.rawInput = ""
 	b.candidates = nil
 	b.commitString = ""
 }
@@ -211,12 +226,17 @@ func (b *testBackend) State() rimeState {
 	state := rimeState{
 		CommitString:    b.commitString,
 		Composition:     b.composition,
+		RawInput:        b.rawInput,
+		PageNo:          b.pageNo,
 		CursorPos:       len(b.composition),
 		Candidates:      append([]candidateItem(nil), b.candidates...),
 		CandidateCursor: 0,
 		SelectKeys:      "1234567890",
 		AsciiMode:       b.asciiMode,
 		FullShape:       b.fullShape,
+	}
+	if state.RawInput == "" {
+		state.RawInput = b.composition
 	}
 	b.commitString = ""
 	return state
@@ -282,6 +302,16 @@ func (b *testBackend) SelectSchema(schemaID string) bool {
 func (b *testBackend) SetCandidatePageSize(pageSize int) bool {
 	b.pageSizeCalls = append(b.pageSizeCalls, pageSize)
 	return b.pageSizeOK
+}
+
+func (b *testBackend) SelectCandidate(index int) bool {
+	if index < 0 || index >= len(b.candidates) {
+		return false
+	}
+	b.commitString = b.candidates[index].Text
+	b.composition = ""
+	b.candidates = nil
+	return true
 }
 
 func (b *testBackend) currentCommit() string {
@@ -453,6 +483,8 @@ func TestOnKeyDownReflectsBackendStateAfterFilter(t *testing.T) {
 }
 
 func TestOnKeyDownNumberSelectsCandidate(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	resetCustomPhraseCacheForTest()
 	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 	backend.composition = "ni"
@@ -480,6 +512,106 @@ func TestOnKeyDownNumberSelectsCandidate(t *testing.T) {
 	}
 	if backend.composition != "" || backend.candidates != nil {
 		t.Fatal("expected state reset after candidate selection")
+	}
+}
+
+func TestOnKeyDownSemicolonSelectsSecondCandidate(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	resetCustomPhraseCacheForTest()
+	ime := newIsolatedTestIME(t)
+	ime.semicolonSelectSecond = true
+	backend := ime.backend.(*testBackend)
+	backend.composition = "ni"
+	backend.candidates = []candidateItem{{Text: "你"}, {Text: "呢"}, {Text: "泥"}}
+	ime.keyComposing = true
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum:   41,
+		KeyCode:  vkOem1,
+		CharCode: int(';'),
+	}, imecore.NewResponse(41, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected semicolon selection to be handled, got %d", filterResp.ReturnValue)
+	}
+
+	resp := ime.onKeyDown(&imecore.Request{
+		SeqNum:   42,
+		KeyCode:  vkOem1,
+		CharCode: int(';'),
+	}, imecore.NewResponse(42, true))
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected semicolon onKeyDown to succeed, got %d", resp.ReturnValue)
+	}
+	if resp.CommitString != "呢" {
+		t.Fatalf("expected semicolon to commit second candidate 呢, got %q", resp.CommitString)
+	}
+	if backend.composition != "" || backend.candidates != nil {
+		t.Fatal("expected state reset after semicolon selection")
+	}
+}
+
+func TestOnKeyDownSemicolonSelectsSecondCandidateWhenKeyEncodingDiffersBetweenStages(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	resetCustomPhraseCacheForTest()
+	ime := newIsolatedTestIME(t)
+	ime.semicolonSelectSecond = true
+	backend := ime.backend.(*testBackend)
+	backend.composition = "n"
+	backend.candidates = []candidateItem{{Text: "你"}, {Text: "那么"}, {Text: "能不能"}, {Text: "哪里"}}
+	ime.keyComposing = true
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum:   43,
+		KeyCode:  vkOem1,
+		CharCode: 0,
+	}, imecore.NewResponse(43, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected semicolon filterKeyDown handled with OEM keycode, got %d", filterResp.ReturnValue)
+	}
+
+	resp := ime.onKeyDown(&imecore.Request{
+		SeqNum:   44,
+		KeyCode:  0,
+		CharCode: int(';'),
+	}, imecore.NewResponse(44, true))
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected semicolon onKeyDown handled with charcode-only event, got %d", resp.ReturnValue)
+	}
+	if resp.CommitString != "那么" {
+		t.Fatalf("expected semicolon to commit second visible candidate 那么, got %q", resp.CommitString)
+	}
+}
+
+func TestOnKeyDownSemicolonSelectsSecondCandidateWhenOEMKeyHasUnexpectedCharCode(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	resetCustomPhraseCacheForTest()
+	ime := newIsolatedTestIME(t)
+	ime.semicolonSelectSecond = true
+	backend := ime.backend.(*testBackend)
+	backend.composition = "n"
+	backend.candidates = []candidateItem{{Text: "你"}, {Text: "那么"}, {Text: "能不能"}}
+	ime.keyComposing = true
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum:   45,
+		KeyCode:  vkOem1,
+		CharCode: int('；'),
+	}, imecore.NewResponse(45, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected semicolon filterKeyDown handled even with unexpected charCode, got %d", filterResp.ReturnValue)
+	}
+
+	resp := ime.onKeyDown(&imecore.Request{
+		SeqNum:   46,
+		KeyCode:  vkOem1,
+		CharCode: int('；'),
+	}, imecore.NewResponse(46, true))
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected semicolon onKeyDown handled even with unexpected charCode, got %d", resp.ReturnValue)
+	}
+	if resp.CommitString != "那么" {
+		t.Fatalf("expected semicolon to commit second visible candidate 那么, got %q", resp.CommitString)
 	}
 }
 
@@ -972,10 +1104,14 @@ func TestBuildMenuPlacesUpdateConfigBeforeDeploy(t *testing.T) {
 	ime := newIsolatedTestIME(t)
 	items := ime.buildMenu()
 
+	openIndex := -1
 	updateIndex := -1
 	deployIndex := -1
 	for i, item := range items {
 		text, _ := item["text"].(string)
+		if text == "打开自定义短语" {
+			openIndex = i
+		}
 		if text == "更新配置(&P)" {
 			updateIndex = i
 		}
@@ -983,8 +1119,11 @@ func TestBuildMenuPlacesUpdateConfigBeforeDeploy(t *testing.T) {
 			deployIndex = i
 		}
 	}
-	if updateIndex == -1 || deployIndex == -1 {
-		t.Fatalf("expected both update and deploy menu items, got %#v", items)
+	if openIndex == -1 || updateIndex == -1 || deployIndex == -1 {
+		t.Fatalf("expected custom phrase, update and deploy menu items, got %#v", items)
+	}
+	if openIndex >= updateIndex {
+		t.Fatalf("expected custom phrase item before update config, got openIndex=%d updateIndex=%d", openIndex, updateIndex)
 	}
 	if updateIndex >= deployIndex {
 		t.Fatalf("expected update config before deploy, got updateIndex=%d deployIndex=%d", updateIndex, deployIndex)
@@ -1010,7 +1149,7 @@ func TestBuildMenuGroupsSchemeSetSchemaUpdateAndDeployWithoutSeparators(t *testi
 		indexByText[text] = i
 	}
 
-	group := []string{"切换方案集", "输入方案(&I)", "更新配置(&P)", "刷新配置(&R)"}
+	group := []string{"切换方案集", "输入方案(&I)", "打开自定义短语", "更新配置(&P)", "刷新配置(&R)"}
 	for _, text := range group {
 		if _, ok := indexByText[text]; !ok {
 			t.Fatalf("expected menu item %q, got %#v", text, items)
@@ -1022,6 +1161,42 @@ func TestBuildMenuGroupsSchemeSetSchemaUpdateAndDeployWithoutSeparators(t *testi
 		if next != current+1 {
 			t.Fatalf("expected %q and %q to be consecutive, got %d and %d", group[i], group[i+1], current, next)
 		}
+	}
+}
+
+func TestOnCommandOpenCustomPhraseCreatesFileAndOpensIt(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetCustomPhraseCacheForTest()
+	oldOpen := openCustomPhraseTargetFunc
+	defer func() {
+		openCustomPhraseTargetFunc = oldOpen
+	}()
+
+	var openedPath string
+	openCustomPhraseTargetFunc = func(path string) error {
+		openedPath = path
+		return nil
+	}
+
+	ime := newIsolatedTestIME(t)
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 100,
+		ID:     imecore.FlexibleID{Int: ID_OPEN_CUSTOM_PHRASE, IsInt: true},
+	}, imecore.NewResponse(100, true))
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected open custom phrase command handled, got %d", resp.ReturnValue)
+	}
+	wantPath := filepath.Join(appData, APP, customPhraseFileName)
+	if openedPath != wantPath {
+		t.Fatalf("expected opened custom phrase path %q, got %q", wantPath, openedPath)
+	}
+	data, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("expected custom phrase file created: %v", err)
+	}
+	if !strings.Contains(string(data), "词汇<Tab>编码<Tab>权重") {
+		t.Fatalf("expected default custom phrase template, got %q", string(data))
 	}
 }
 
@@ -1689,14 +1864,20 @@ func TestBuildMenuIncludesInputSettingsSubmenu(t *testing.T) {
 	}
 
 	submenu, ok := inputSettingsMenu["submenu"].([]map[string]interface{})
-	if !ok || len(submenu) != 1 {
-		t.Fatalf("expected one input settings item, got %#v", inputSettingsMenu["submenu"])
+	if !ok || len(submenu) != 2 {
+		t.Fatalf("expected two input settings items, got %#v", inputSettingsMenu["submenu"])
 	}
 	if text, _ := submenu[0]["text"].(string); text != "自动插入成对引号" {
 		t.Fatalf("unexpected input settings item: %#v", submenu[0])
 	}
 	if checked, _ := submenu[0]["checked"].(bool); checked {
 		t.Fatalf("expected auto pair quotes disabled by default, got %#v", submenu[0])
+	}
+	if text, _ := submenu[1]["text"].(string); text != "分号键 2 选" {
+		t.Fatalf("unexpected second input settings item: %#v", submenu[1])
+	}
+	if checked, _ := submenu[1]["checked"].(bool); checked {
+		t.Fatalf("expected semicolon select second disabled by default, got %#v", submenu[1])
 	}
 }
 
@@ -1732,6 +1913,258 @@ func TestOnCommandTogglesAutoPairQuotes(t *testing.T) {
 	}
 	if got := persisted["auto_pair_quotes"]; got != true {
 		t.Fatalf("expected persisted auto_pair_quotes true, got %#v", got)
+	}
+}
+
+func TestOnCommandTogglesSemicolonSelectSecond(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetSharedAppearanceConfigForTest()
+
+	ime := newIsolatedTestIME(t)
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 22,
+		ID:     imecore.FlexibleID{Int: ID_INPUT_SEMICOLON_SELECT_SECOND, IsInt: true},
+	}, imecore.NewResponse(22, true))
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected semicolon select second command handled, got %d", resp.ReturnValue)
+	}
+	if !ime.semicolonSelectSecond {
+		t.Fatal("expected semicolon select second enabled")
+	}
+	if got, ok := resp.CustomizeUI["semicolonSelectSecond"].(bool); !ok || !got {
+		t.Fatalf("expected customizeUI semicolonSelectSecond true, got %#v", resp.CustomizeUI["semicolonSelectSecond"])
+	}
+
+	configPath := filepath.Join(appData, APP, appearanceConfigFileName)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("expected appearance config written to disk: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatalf("expected valid appearance config json: %v", err)
+	}
+	if got := persisted["semicolon_select_second"]; got != true {
+		t.Fatalf("expected persisted semicolon_select_second true, got %#v", got)
+	}
+}
+
+func TestFillResponseFromBackendStatePrependsCustomPhraseCandidates(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 自定义短语\nalpha\ta\t10\nalps\tal\t5\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "a"
+	backend.candidates = []candidateItem{
+		{Text: "阿"},
+		{Text: "啊"},
+	}
+
+	resp := imecore.NewResponse(30, true)
+	ime.fillResponseFromBackendState(resp, false)
+
+	if len(resp.CandidateList) < 3 {
+		t.Fatalf("expected custom and backend candidates, got %#v", resp.CandidateList)
+	}
+	if resp.CandidateList[0] != "alpha" || resp.CandidateList[1] != "alps" {
+		t.Fatalf("expected custom phrase candidates prepended, got %#v", resp.CandidateList)
+	}
+	if resp.CandidateList[2] != "阿" {
+		t.Fatalf("expected backend candidates appended after custom phrases, got %#v", resp.CandidateList)
+	}
+	if resp.CandidateCursor != 0 {
+		t.Fatalf("expected custom phrase candidate cursor default to 0, got %d", resp.CandidateCursor)
+	}
+	if resp.SetSelKeys != "1234" {
+		t.Fatalf("expected select keys recomputed for combined candidates, got %q", resp.SetSelKeys)
+	}
+}
+
+func TestFillResponseFromBackendStateMatchesCustomPhraseByRawInput(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 自定义短语\n娘\tnl\t10\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "niang"
+	backend.rawInput = "nl"
+	backend.candidates = []candidateItem{
+		{Text: "娘"},
+		{Text: "酿"},
+	}
+
+	resp := imecore.NewResponse(301, true)
+	ime.fillResponseFromBackendState(resp, false)
+
+	if len(resp.CandidateList) < 1 {
+		t.Fatalf("expected custom phrase candidate, got %#v", resp.CandidateList)
+	}
+	if resp.CandidateList[0] != "娘" {
+		t.Fatalf("expected raw input nl to match custom phrase before backend candidates, got %#v", resp.CandidateList)
+	}
+}
+
+func TestFillResponseFromBackendStateMatchesCustomPhraseByTrackedRawInput(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 自定义短语\n娘\tnl\t10\n")
+
+	ime := newIsolatedTestIME(t)
+	ime.rawInputTracked = "nl"
+	backend := ime.backend.(*testBackend)
+	backend.composition = "niang"
+	backend.rawInput = ""
+	backend.candidates = []candidateItem{
+		{Text: "娘"},
+		{Text: "酿"},
+	}
+
+	resp := imecore.NewResponse(302, true)
+	ime.fillResponseFromBackendState(resp, false)
+
+	if len(resp.CandidateList) < 1 {
+		t.Fatalf("expected custom phrase candidate, got %#v", resp.CandidateList)
+	}
+	if resp.CandidateList[0] != "娘" {
+		t.Fatalf("expected tracked raw input nl to match custom phrase before backend candidates, got %#v", resp.CandidateList)
+	}
+}
+
+func TestFillResponseFromBackendStateDoesNotShowCustomPhraseAfterPaging(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 自定义短语\nalpha\ta\t10\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "a"
+	backend.rawInput = "a"
+	backend.pageNo = 1
+	backend.candidates = []candidateItem{
+		{Text: "阿"},
+		{Text: "啊"},
+	}
+
+	resp := imecore.NewResponse(302, true)
+	ime.fillResponseFromBackendState(resp, false)
+
+	if len(resp.CandidateList) != 2 {
+		t.Fatalf("expected only backend candidates after paging, got %#v", resp.CandidateList)
+	}
+	if resp.CandidateList[0] != "阿" || resp.CandidateList[1] != "啊" {
+		t.Fatalf("expected paged results to exclude custom phrases, got %#v", resp.CandidateList)
+	}
+}
+
+func TestCustomPhraseSelectionCommitsFirstCustomCandidate(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 自定义短语\nalpha\ta\t10\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "a"
+	backend.candidates = []candidateItem{{Text: "阿"}}
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum:   31,
+		KeyCode:  int('1'),
+		CharCode: int('1'),
+	}, imecore.NewResponse(31, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected number key intercepted for custom phrase, got %d", filterResp.ReturnValue)
+	}
+
+	onResp := ime.onKeyDown(&imecore.Request{
+		SeqNum:   32,
+		KeyCode:  int('1'),
+		CharCode: int('1'),
+	}, imecore.NewResponse(32, true))
+	if onResp.ReturnValue != 1 {
+		t.Fatalf("expected custom phrase number selection handled, got %d", onResp.ReturnValue)
+	}
+	if onResp.CommitString != "alpha" {
+		t.Fatalf("expected custom phrase committed, got %q", onResp.CommitString)
+	}
+	if backend.composition != "" {
+		t.Fatalf("expected backend composition cleared after custom phrase commit, got %q", backend.composition)
+	}
+}
+
+func TestCustomPhraseOverlayCanSelectBackendCandidateAfterCustomOnes(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 自定义短语\nalpha\ta\t10\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "a"
+	backend.candidates = []candidateItem{{Text: "阿"}}
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum:   33,
+		KeyCode:  int('2'),
+		CharCode: int('2'),
+	}, imecore.NewResponse(33, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected second number key intercepted, got %d", filterResp.ReturnValue)
+	}
+
+	onResp := ime.onKeyDown(&imecore.Request{
+		SeqNum:   34,
+		KeyCode:  int('2'),
+		CharCode: int('2'),
+	}, imecore.NewResponse(34, true))
+	if onResp.ReturnValue != 1 {
+		t.Fatalf("expected backend overlay candidate selection handled, got %d", onResp.ReturnValue)
+	}
+	if onResp.CommitString != "阿" {
+		t.Fatalf("expected backend first candidate committed after custom phrase slot, got %q", onResp.CommitString)
+	}
+}
+
+func TestCustomPhraseOverlaySemicolonSelectsSecondVisibleCandidate(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 自定义短语\nalpha\ta\t10\n")
+
+	ime := newIsolatedTestIME(t)
+	ime.semicolonSelectSecond = true
+	backend := ime.backend.(*testBackend)
+	backend.composition = "a"
+	backend.candidates = []candidateItem{{Text: "阿"}}
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum:   35,
+		KeyCode:  vkOem1,
+		CharCode: int(';'),
+	}, imecore.NewResponse(35, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected semicolon key intercepted for custom phrase overlay, got %d", filterResp.ReturnValue)
+	}
+
+	onResp := ime.onKeyDown(&imecore.Request{
+		SeqNum:   36,
+		KeyCode:  vkOem1,
+		CharCode: int(';'),
+	}, imecore.NewResponse(36, true))
+	if onResp.ReturnValue != 1 {
+		t.Fatalf("expected semicolon overlay selection handled, got %d", onResp.ReturnValue)
+	}
+	if onResp.CommitString != "阿" {
+		t.Fatalf("expected semicolon to select second visible candidate 阿, got %q", onResp.CommitString)
 	}
 }
 
@@ -1969,6 +2402,7 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 		t.Fatal("expected highlight text color command handled")
 	}
 	ime.autoPairQuotes = true
+	ime.semicolonSelectSecond = true
 	ime.saveAppearancePrefs()
 
 	configPath := filepath.Join(appData, APP, appearanceConfigFileName)
@@ -2008,6 +2442,9 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	if got := persisted["auto_pair_quotes"]; got != true {
 		t.Fatalf("expected persisted auto_pair_quotes true, got %#v", got)
 	}
+	if got := persisted["semicolon_select_second"]; got != true {
+		t.Fatalf("expected persisted semicolon_select_second true, got %#v", got)
+	}
 
 	resetSharedAppearanceConfigForTest()
 	reloaded := newTestIME()
@@ -2042,6 +2479,9 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	}
 	if !reloaded.autoPairQuotes {
 		t.Fatal("expected reloaded auto pair quotes enabled")
+	}
+	if !reloaded.semicolonSelectSecond {
+		t.Fatal("expected reloaded semicolon select second enabled")
 	}
 }
 

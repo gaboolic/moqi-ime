@@ -79,6 +79,7 @@ const (
 	vkRControl = 0xA3
 	vkLMenu    = 0xA4
 	vkRMenu    = 0xA5
+	vkOem1     = 0xBA
 )
 
 var vkMaps = map[int]int{

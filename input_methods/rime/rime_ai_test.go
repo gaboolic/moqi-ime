@@ -87,6 +87,16 @@ func (b *fakeBackend) SetCandidatePageSize(pageSize int) bool {
 	return false
 }
 
+func (b *fakeBackend) SelectCandidate(index int) bool {
+	if index < 0 || index >= len(b.state.Candidates) {
+		return false
+	}
+	b.state.CommitString = b.state.Candidates[index].Text
+	b.state.Composition = ""
+	b.state.Candidates = nil
+	return true
+}
+
 func newTestIMEWithBackend(backend rimeBackend) *IME {
 	ime := New(&imecore.Client{}).(*IME)
 	ime.backend = backend
@@ -501,6 +511,7 @@ func TestAIOverlayShiftsBackendCandidatesAndAllowsSelectingThem(t *testing.T) {
 		},
 	}
 	ime := newTestIMEWithBackend(backend)
+	ime.semicolonSelectSecond = true
 	ime.SetAIReviewGenerator(func(input aiGenerateRequest) ([]string, error) {
 		return []string{"AI 置顶候选"}, nil
 	})
@@ -547,6 +558,60 @@ func TestAIOverlayShiftsBackendCandidatesAndAllowsSelectingThem(t *testing.T) {
 	}
 	if ime.aiActive {
 		t.Fatal("expected AI overlay to end after selecting backend candidate")
+	}
+}
+
+func TestAIOverlaySemicolonSelectsSecondVisibleCandidate(t *testing.T) {
+	backend := &fakeBackend{
+		state: rimeState{
+			Composition: "咖啡机",
+			Candidates: []candidateItem{
+				{Text: "原候选一"},
+				{Text: "原候选二"},
+			},
+		},
+	}
+	ime := newTestIMEWithBackend(backend)
+	ime.semicolonSelectSecond = true
+	ime.SetAIReviewGenerator(func(input aiGenerateRequest) ([]string, error) {
+		return []string{"AI 置顶候选"}, nil
+	})
+
+	ime.HandleRequest(&imecore.Request{
+		Method:    "filterKeyDown",
+		SeqNum:    1,
+		KeyCode:   aiHotkeyKeyCode,
+		KeyStates: keyStatesWithDown(vkControl, vkShift),
+	})
+	ime.HandleRequest(&imecore.Request{
+		Method:    "onKeyDown",
+		SeqNum:    2,
+		KeyCode:   aiHotkeyKeyCode,
+		KeyStates: keyStatesWithDown(vkControl, vkShift),
+	})
+	waitForAIAsyncCompletion(t, ime)
+
+	filterResp := ime.HandleRequest(&imecore.Request{
+		Method:   "filterKeyDown",
+		SeqNum:   4,
+		KeyCode:  vkOem1,
+		CharCode: int(';'),
+	})
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected AI semicolon selection key to be handled, got %#v", filterResp)
+	}
+
+	keyResp := ime.HandleRequest(&imecore.Request{
+		Method:   "onKeyDown",
+		SeqNum:   5,
+		KeyCode:  vkOem1,
+		CharCode: int(';'),
+	})
+	if keyResp.CommitString != "原候选一" {
+		t.Fatalf("expected semicolon to commit second visible candidate 原候选一, got %#v", keyResp.CommitString)
+	}
+	if ime.aiActive {
+		t.Fatal("expected AI overlay to end after semicolon selection")
 	}
 }
 

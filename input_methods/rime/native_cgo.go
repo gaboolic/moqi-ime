@@ -221,6 +221,7 @@ func (b *nativeBackend) State() rimeState {
 		state.SelStart = composition.SelStart
 		state.SelEnd = composition.SelEnd
 	}
+	state.RawInput = GetInput(b.sessionID)
 	if menu, ok := GetMenu(b.sessionID); ok {
 		candidates := make([]candidateItem, 0, len(menu.Candidates))
 		for _, candidate := range menu.Candidates {
@@ -230,6 +231,7 @@ func (b *nativeBackend) State() rimeState {
 			})
 		}
 		state.Candidates = candidates
+		state.PageNo = menu.PageNo
 		state.CandidateCursor = menu.HighlightedCandidateIndex
 		state.SelectKeys = menu.SelectKeys
 	}
@@ -333,4 +335,15 @@ func (b *nativeBackend) SetCandidatePageSize(pageSize int) bool {
 		return false
 	}
 	return SetSchemaPageSize(schemaID, pageSize)
+}
+
+func (b *nativeBackend) SelectCandidate(index int) bool {
+	if !rimeRuntime.tryBeginOperation() {
+		return false
+	}
+	defer rimeRuntime.endOperation()
+	if !b.ensureSessionLocked() {
+		return false
+	}
+	return SelectCandidate(b.sessionID, index)
 }
