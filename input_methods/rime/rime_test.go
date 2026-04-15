@@ -1873,7 +1873,7 @@ func TestBuildMenuIncludesInputSettingsSubmenu(t *testing.T) {
 	if checked, _ := submenu[0]["checked"].(bool); checked {
 		t.Fatalf("expected auto pair quotes disabled by default, got %#v", submenu[0])
 	}
-	if text, _ := submenu[1]["text"].(string); text != "分号键 2 选" {
+	if text, _ := submenu[1]["text"].(string); text != "分号键次选" {
 		t.Fatalf("unexpected second input settings item: %#v", submenu[1])
 	}
 	if checked, _ := submenu[1]["checked"].(bool); checked {
@@ -1931,7 +1931,7 @@ func TestOnCommandTogglesSemicolonSelectSecond(t *testing.T) {
 		t.Fatalf("expected semicolon select second command handled, got %d", resp.ReturnValue)
 	}
 	if !ime.semicolonSelectSecond {
-		t.Fatal("expected semicolon select second enabled")
+		t.Fatal("expected semicolon select second enabled after toggle")
 	}
 	if got, ok := resp.CustomizeUI["semicolonSelectSecond"].(bool); !ok || !got {
 		t.Fatalf("expected customizeUI semicolonSelectSecond true, got %#v", resp.CustomizeUI["semicolonSelectSecond"])
