@@ -251,8 +251,18 @@ func (ime *IME) customPhraseMatchInput(state rimeState) string {
 	return strings.TrimSpace(state.Composition)
 }
 
+func shouldSuppressCustomPhraseOverlay(state rimeState) bool {
+	rawInput := strings.TrimSpace(state.RawInput)
+	composition := strings.TrimSpace(state.Composition)
+	return strings.ContainsRune(rawInput, '`') || strings.ContainsRune(composition, '`')
+}
+
 func (ime *IME) visibleCustomPhraseCandidatesForState(state rimeState) []candidateItem {
 	if state.PageNo > 0 {
+		ime.resetCustomPhraseOverlay()
+		return nil
+	}
+	if shouldSuppressCustomPhraseOverlay(state) {
 		ime.resetCustomPhraseOverlay()
 		return nil
 	}

@@ -2038,6 +2038,32 @@ func TestFillResponseFromBackendStateMatchesCustomPhraseByTrackedRawInput(t *tes
 	}
 }
 
+func TestFillResponseFromBackendStateSkipsCustomPhraseOverlayForLuaFilterComposition(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 自定义短语\n的\td\t10\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "fa`d"
+	backend.rawInput = "d"
+	backend.candidates = []candidateItem{
+		{Text: "法"},
+		{Text: "珐"},
+	}
+
+	resp := imecore.NewResponse(303, true)
+	ime.fillResponseFromBackendState(resp, false)
+
+	if len(resp.CandidateList) < 1 {
+		t.Fatalf("expected backend candidates to remain visible, got %#v", resp.CandidateList)
+	}
+	if resp.CandidateList[0] != "法" {
+		t.Fatalf("expected lua filter candidates to stay ahead of custom phrases, got %#v", resp.CandidateList)
+	}
+}
+
 func TestFillResponseFromBackendStateDoesNotShowCustomPhraseAfterPaging(t *testing.T) {
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
