@@ -1134,7 +1134,7 @@ func TestBuildMenuPlacesUpdateConfigBeforeDeploy(t *testing.T) {
 	deployIndex := -1
 	for i, item := range items {
 		text, _ := item["text"].(string)
-		if text == "打开自定义短语" {
+		if text == "打开置顶短语" {
 			openIndex = i
 		}
 		if text == "打开超级简拼" {
@@ -1180,7 +1180,7 @@ func TestBuildMenuGroupsSchemeSetSchemaUpdateAndDeployWithoutSeparators(t *testi
 		indexByText[text] = i
 	}
 
-	group := []string{"切换方案集", "输入方案(&I)", "打开自定义短语", "打开超级简拼", "更新配置(&P)", "刷新配置(&R)"}
+	group := []string{"切换方案集", "输入方案(&I)", "打开置顶短语", "打开超级简拼", "更新配置(&P)", "刷新配置(&R)"}
 	for _, text := range group {
 		if _, ok := indexByText[text]; !ok {
 			t.Fatalf("expected menu item %q, got %#v", text, items)
@@ -2022,7 +2022,7 @@ func TestFillResponseFromBackendStatePrependsCustomPhraseCandidates(t *testing.T
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
 	resetCustomPhraseCacheForTest()
-	writeTestCustomPhraseFile(t, appData, "# 自定义短语\nalpha\ta\t10\nalps\tal\t5\n")
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\nalpha\ta\t10\nalps\tal\t5\n")
 
 	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
@@ -2056,7 +2056,7 @@ func TestFillResponseFromBackendStateMatchesCustomPhraseByRawInput(t *testing.T)
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
 	resetCustomPhraseCacheForTest()
-	writeTestCustomPhraseFile(t, appData, "# 自定义短语\n娘\tnl\t10\n")
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\n娘\tnl\t10\n")
 
 	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
@@ -2082,7 +2082,7 @@ func TestFillResponseFromBackendStateMatchesCustomPhraseByTrackedRawInput(t *tes
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
 	resetCustomPhraseCacheForTest()
-	writeTestCustomPhraseFile(t, appData, "# 自定义短语\n娘\tnl\t10\n")
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\n娘\tnl\t10\n")
 
 	ime := newIsolatedTestIME(t)
 	ime.rawInputTracked = "nl"
@@ -2137,7 +2137,7 @@ func TestFillResponseFromBackendStateShowsSuperAbbrevOnPrependedCustomPhrase(t *
 	t.Setenv("APPDATA", appData)
 	resetSuperAbbrevCacheForTest()
 	resetCustomPhraseCacheForTest()
-	writeTestCustomPhraseFile(t, appData, "# 自定义短语\n发生\tfa\t10\n")
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\n发生\tfa\t10\n")
 	writeTestSuperAbbrevFile(t, appData, "# 超级简拼\n法\tfa\n")
 
 	ime := newIsolatedTestIME(t)
@@ -2214,7 +2214,7 @@ func TestFillResponseFromBackendStateSkipsCustomPhraseOverlayForLuaFilterComposi
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
 	resetCustomPhraseCacheForTest()
-	writeTestCustomPhraseFile(t, appData, "# 自定义短语\n的\td\t10\n")
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\n的\td\t10\n")
 
 	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
@@ -2312,7 +2312,7 @@ func TestSuperAbbrevTabCommitsOverlayTextWhenCustomPhraseIsFirst(t *testing.T) {
 	t.Setenv("APPDATA", appData)
 	resetSuperAbbrevCacheForTest()
 	resetCustomPhraseCacheForTest()
-	writeTestCustomPhraseFile(t, appData, "# 自定义短语\n发生\tfa\t10\n")
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\n发生\tfa\t10\n")
 	writeTestSuperAbbrevFile(t, appData, "# 超级简拼\n法\tfa\n")
 
 	ime := newIsolatedTestIME(t)
@@ -2345,7 +2345,7 @@ func TestFillResponseFromBackendStateDoesNotShowCustomPhraseAfterPaging(t *testi
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
 	resetCustomPhraseCacheForTest()
-	writeTestCustomPhraseFile(t, appData, "# 自定义短语\nalpha\ta\t10\n")
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\nalpha\ta\t10\n")
 
 	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
@@ -2372,7 +2372,7 @@ func TestCustomPhraseSelectionCommitsFirstCustomCandidate(t *testing.T) {
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
 	resetCustomPhraseCacheForTest()
-	writeTestCustomPhraseFile(t, appData, "# 自定义短语\nalpha\ta\t10\n")
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\nalpha\ta\t10\n")
 
 	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
@@ -2408,7 +2408,7 @@ func TestCustomPhraseOverlayCanSelectBackendCandidateAfterCustomOnes(t *testing.
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
 	resetCustomPhraseCacheForTest()
-	writeTestCustomPhraseFile(t, appData, "# 自定义短语\nalpha\ta\t10\n")
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\nalpha\ta\t10\n")
 
 	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
@@ -2441,7 +2441,7 @@ func TestCustomPhraseOverlayDoesNotInterceptEnter(t *testing.T) {
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
 	resetCustomPhraseCacheForTest()
-	writeTestCustomPhraseFile(t, appData, "# 自定义短语\nalpha\ta\t10\n")
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\nalpha\ta\t10\n")
 
 	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
@@ -2472,7 +2472,7 @@ func TestCustomPhraseOverlaySemicolonSelectsSecondVisibleCandidate(t *testing.T)
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
 	resetCustomPhraseCacheForTest()
-	writeTestCustomPhraseFile(t, appData, "# 自定义短语\nalpha\ta\t10\n")
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\nalpha\ta\t10\n")
 
 	ime := newIsolatedTestIME(t)
 	ime.semicolonSelectSecond = true
