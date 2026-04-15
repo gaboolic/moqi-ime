@@ -80,6 +80,7 @@ const (
 	vkLMenu    = 0xA4
 	vkRMenu    = 0xA5
 	vkOem1     = 0xBA
+	vkOemPeriod = 0xBE
 )
 
 var vkMaps = map[int]int{

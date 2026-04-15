@@ -12,6 +12,18 @@ import (
 	"github.com/gaboolic/moqi-ime/imecore"
 )
 
+func TestMain(m *testing.M) {
+	tempAppData, err := os.MkdirTemp("", "moqi-ime-rime-test-*")
+	if err == nil {
+		_ = os.Setenv("APPDATA", tempAppData)
+	}
+	code := m.Run()
+	if err == nil {
+		_ = os.RemoveAll(tempAppData)
+	}
+	os.Exit(code)
+}
+
 func writeTestAIConfig(t *testing.T, appData string, body string) {
 	t.Helper()
 	configPath := filepath.Join(appData, APP, aiConfigFileName)
@@ -46,6 +58,18 @@ func writeTestCustomPhraseFile(t *testing.T, appData, body string) string {
 	}
 	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
 		t.Fatalf("write custom phrase file: %v", err)
+	}
+	return configPath
+}
+
+func writeTestSuperAbbrevFile(t *testing.T, appData, body string) string {
+	t.Helper()
+	configPath := filepath.Join(appData, APP, superAbbrevFileName)
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("create super abbrev dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("write super abbrev file: %v", err)
 	}
 	return configPath
 }
@@ -1105,12 +1129,16 @@ func TestBuildMenuPlacesUpdateConfigBeforeDeploy(t *testing.T) {
 	items := ime.buildMenu()
 
 	openIndex := -1
+	superIndex := -1
 	updateIndex := -1
 	deployIndex := -1
 	for i, item := range items {
 		text, _ := item["text"].(string)
 		if text == "打开自定义短语" {
 			openIndex = i
+		}
+		if text == "打开超级简拼" {
+			superIndex = i
 		}
 		if text == "更新配置(&P)" {
 			updateIndex = i
@@ -1119,11 +1147,14 @@ func TestBuildMenuPlacesUpdateConfigBeforeDeploy(t *testing.T) {
 			deployIndex = i
 		}
 	}
-	if openIndex == -1 || updateIndex == -1 || deployIndex == -1 {
-		t.Fatalf("expected custom phrase, update and deploy menu items, got %#v", items)
+	if openIndex == -1 || superIndex == -1 || updateIndex == -1 || deployIndex == -1 {
+		t.Fatalf("expected custom phrase, super abbrev, update and deploy menu items, got %#v", items)
 	}
 	if openIndex >= updateIndex {
 		t.Fatalf("expected custom phrase item before update config, got openIndex=%d updateIndex=%d", openIndex, updateIndex)
+	}
+	if superIndex != openIndex+1 {
+		t.Fatalf("expected super abbrev item right after custom phrase, got openIndex=%d superIndex=%d", openIndex, superIndex)
 	}
 	if updateIndex >= deployIndex {
 		t.Fatalf("expected update config before deploy, got updateIndex=%d deployIndex=%d", updateIndex, deployIndex)
@@ -1149,7 +1180,7 @@ func TestBuildMenuGroupsSchemeSetSchemaUpdateAndDeployWithoutSeparators(t *testi
 		indexByText[text] = i
 	}
 
-	group := []string{"切换方案集", "输入方案(&I)", "打开自定义短语", "更新配置(&P)", "刷新配置(&R)"}
+	group := []string{"切换方案集", "输入方案(&I)", "打开自定义短语", "打开超级简拼", "更新配置(&P)", "刷新配置(&R)"}
 	for _, text := range group {
 		if _, ok := indexByText[text]; !ok {
 			t.Fatalf("expected menu item %q, got %#v", text, items)
@@ -1197,6 +1228,42 @@ func TestOnCommandOpenCustomPhraseCreatesFileAndOpensIt(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "词汇<Tab>编码<Tab>权重") {
 		t.Fatalf("expected default custom phrase template, got %q", string(data))
+	}
+}
+
+func TestOnCommandOpenSuperAbbrevCreatesFileAndOpensIt(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetSuperAbbrevCacheForTest()
+	oldOpen := openSuperAbbrevTargetFunc
+	defer func() {
+		openSuperAbbrevTargetFunc = oldOpen
+	}()
+
+	var openedPath string
+	openSuperAbbrevTargetFunc = func(path string) error {
+		openedPath = path
+		return nil
+	}
+
+	ime := newIsolatedTestIME(t)
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 101,
+		ID:     imecore.FlexibleID{Int: ID_OPEN_SUPER_ABBREV, IsInt: true},
+	}, imecore.NewResponse(101, true))
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected open super abbrev command handled, got %d", resp.ReturnValue)
+	}
+	wantPath := filepath.Join(appData, APP, superAbbrevFileName)
+	if openedPath != wantPath {
+		t.Fatalf("expected opened super abbrev path %q, got %q", wantPath, openedPath)
+	}
+	data, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("expected super abbrev file created: %v", err)
+	}
+	if !strings.Contains(string(data), "词汇<Tab>编码") {
+		t.Fatalf("expected default super abbrev template, got %q", string(data))
 	}
 }
 
@@ -2038,6 +2105,111 @@ func TestFillResponseFromBackendStateMatchesCustomPhraseByTrackedRawInput(t *tes
 	}
 }
 
+func TestFillResponseFromBackendStateShowsSuperAbbrevInFirstComment(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetSuperAbbrevCacheForTest()
+	resetCustomPhraseCacheForTest()
+	writeTestSuperAbbrevFile(t, appData, "# 超级简拼\n法\tfa\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "fa"
+	backend.rawInput = "fa"
+	backend.candidates = []candidateItem{
+		{Text: "发"},
+		{Text: "法"},
+	}
+
+	resp := imecore.NewResponse(3021, true)
+	ime.fillResponseFromBackendState(resp, false)
+
+	if len(resp.CandidateEntries) < 1 {
+		t.Fatalf("expected candidate entries, got %#v", resp.CandidateEntries)
+	}
+	if resp.CandidateEntries[0].Text != "发" || resp.CandidateEntries[0].Comment != "法" {
+		t.Fatalf("expected first candidate comment to show super abbrev, got %#v", resp.CandidateEntries[0])
+	}
+}
+
+func TestFillResponseFromBackendStateShowsSuperAbbrevOnPrependedCustomPhrase(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetSuperAbbrevCacheForTest()
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 自定义短语\n发生\tfa\t10\n")
+	writeTestSuperAbbrevFile(t, appData, "# 超级简拼\n法\tfa\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "fa"
+	backend.rawInput = "fa"
+	backend.candidates = []candidateItem{
+		{Text: "发"},
+		{Text: "法"},
+	}
+
+	resp := imecore.NewResponse(30215, true)
+	ime.fillResponseFromBackendState(resp, false)
+
+	if len(resp.CandidateEntries) < 1 {
+		t.Fatalf("expected candidate entries, got %#v", resp.CandidateEntries)
+	}
+	if resp.CandidateEntries[0].Text != "发生" || resp.CandidateEntries[0].Comment != "法" {
+		t.Fatalf("expected super abbrev comment on prepended custom phrase, got %#v", resp.CandidateEntries[0])
+	}
+}
+
+func TestFillResponseFromBackendStateInjectsSuperAbbrevCandidateWhenNoBackendCandidate(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetSuperAbbrevCacheForTest()
+	resetCustomPhraseCacheForTest()
+	writeTestSuperAbbrevFile(t, appData, "# 超级简拼\n法\tfa\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "fa"
+	backend.rawInput = "fa"
+
+	resp := imecore.NewResponse(3022, true)
+	ime.fillResponseFromBackendState(resp, false)
+
+	if len(resp.CandidateEntries) != 1 {
+		t.Fatalf("expected synthetic super abbrev candidate, got %#v", resp.CandidateEntries)
+	}
+	if resp.CandidateEntries[0].Text != "法" || resp.CandidateEntries[0].Comment != superAbbrevCommitMark {
+		t.Fatalf("unexpected synthetic super abbrev candidate %#v", resp.CandidateEntries[0])
+	}
+}
+
+func TestFillResponseFromBackendStateSkipsSuperAbbrevForLuaFilterComposition(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetSuperAbbrevCacheForTest()
+	resetCustomPhraseCacheForTest()
+	writeTestSuperAbbrevFile(t, appData, "# 超级简拼\n的\td\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "fa`d"
+	backend.rawInput = "d"
+	backend.candidates = []candidateItem{
+		{Text: "法"},
+		{Text: "珐"},
+	}
+
+	resp := imecore.NewResponse(3023, true)
+	ime.fillResponseFromBackendState(resp, false)
+
+	if len(resp.CandidateEntries) < 1 {
+		t.Fatalf("expected backend candidates to remain visible, got %#v", resp.CandidateEntries)
+	}
+	if resp.CandidateEntries[0].Text != "法" || resp.CandidateEntries[0].Comment != "" {
+		t.Fatalf("expected lua filter composition to skip super abbrev overlay, got %#v", resp.CandidateEntries[0])
+	}
+}
+
 func TestFillResponseFromBackendStateSkipsCustomPhraseOverlayForLuaFilterComposition(t *testing.T) {
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
@@ -2061,6 +2233,111 @@ func TestFillResponseFromBackendStateSkipsCustomPhraseOverlayForLuaFilterComposi
 	}
 	if resp.CandidateList[0] != "法" {
 		t.Fatalf("expected lua filter candidates to stay ahead of custom phrases, got %#v", resp.CandidateList)
+	}
+}
+
+func TestSuperAbbrevTabCommitsOverlayText(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetSuperAbbrevCacheForTest()
+	resetCustomPhraseCacheForTest()
+	writeTestSuperAbbrevFile(t, appData, "# 超级简拼\n法\tfa\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "fa"
+	backend.rawInput = "fa"
+	backend.candidates = []candidateItem{{Text: "发"}}
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum: 401,
+		KeyCode: vkTab,
+	}, imecore.NewResponse(401, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected tab intercepted for super abbrev, got %d", filterResp.ReturnValue)
+	}
+
+	onResp := ime.onKeyDown(&imecore.Request{
+		SeqNum: 402,
+		KeyCode: vkTab,
+	}, imecore.NewResponse(402, true))
+	if onResp.ReturnValue != 1 {
+		t.Fatalf("expected tab commit handled, got %d", onResp.ReturnValue)
+	}
+	if onResp.CommitString != "法" {
+		t.Fatalf("expected super abbrev committed by tab, got %q", onResp.CommitString)
+	}
+	if backend.composition != "" {
+		t.Fatalf("expected backend composition cleared after super abbrev commit, got %q", backend.composition)
+	}
+}
+
+func TestSuperAbbrevPeriodCommitsOverlayText(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetSuperAbbrevCacheForTest()
+	resetCustomPhraseCacheForTest()
+	writeTestSuperAbbrevFile(t, appData, "# 超级简拼\n法\tfa\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "fa"
+	backend.rawInput = "fa"
+	backend.candidates = []candidateItem{{Text: "发"}}
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum:   403,
+		KeyCode:  vkOemPeriod,
+		CharCode: int('.'),
+	}, imecore.NewResponse(403, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected period intercepted for super abbrev, got %d", filterResp.ReturnValue)
+	}
+
+	onResp := ime.onKeyDown(&imecore.Request{
+		SeqNum:   404,
+		KeyCode:  vkOemPeriod,
+		CharCode: int('.'),
+	}, imecore.NewResponse(404, true))
+	if onResp.ReturnValue != 1 {
+		t.Fatalf("expected period commit handled, got %d", onResp.ReturnValue)
+	}
+	if onResp.CommitString != "法" {
+		t.Fatalf("expected super abbrev committed by period, got %q", onResp.CommitString)
+	}
+}
+
+func TestSuperAbbrevTabCommitsOverlayTextWhenCustomPhraseIsFirst(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetSuperAbbrevCacheForTest()
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 自定义短语\n发生\tfa\t10\n")
+	writeTestSuperAbbrevFile(t, appData, "# 超级简拼\n法\tfa\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "fa"
+	backend.rawInput = "fa"
+	backend.candidates = []candidateItem{{Text: "发"}}
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum: 405,
+		KeyCode: vkTab,
+	}, imecore.NewResponse(405, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected tab intercepted for super abbrev with custom phrase first, got %d", filterResp.ReturnValue)
+	}
+
+	onResp := ime.onKeyDown(&imecore.Request{
+		SeqNum: 406,
+		KeyCode: vkTab,
+	}, imecore.NewResponse(406, true))
+	if onResp.ReturnValue != 1 {
+		t.Fatalf("expected tab commit handled with custom phrase first, got %d", onResp.ReturnValue)
+	}
+	if onResp.CommitString != "法" {
+		t.Fatalf("expected super abbrev committed by tab with custom phrase first, got %q", onResp.CommitString)
 	}
 }
 

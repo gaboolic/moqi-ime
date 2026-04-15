@@ -189,6 +189,7 @@ type IME struct {
 	customPhraseCandidates       []candidateItem
 	customPhraseCursor           int
 	customPhraseConsumeKeyUpCode int
+	superAbbrevConsumeKeyUpCode  int
 	secondSelectConsumeKeyUpCode int
 }
 
@@ -329,6 +330,9 @@ func (ime *IME) filterKeyDown(req *imecore.Request, resp *imecore.Response) *ime
 	if ime.handleCustomPhraseKeyDownFilter(req, resp) {
 		return resp
 	}
+	if ime.handleSuperAbbrevKeyDownFilter(req, resp) {
+		return resp
+	}
 	if ime.handleSecondSelectionKeyDownFilter(req, resp) {
 		return resp
 	}
@@ -355,6 +359,9 @@ func (ime *IME) filterKeyUp(req *imecore.Request, resp *imecore.Response) *imeco
 	if ime.handleCustomPhraseKeyUpFilter(req, resp) {
 		return resp
 	}
+	if ime.handleSuperAbbrevKeyUpFilter(req, resp) {
+		return resp
+	}
 	if ime.handleSecondSelectionKeyUpFilter(req, resp) {
 		return resp
 	}
@@ -377,6 +384,9 @@ func (ime *IME) onKeyDown(req *imecore.Request, resp *imecore.Response) *imecore
 	if ime.handleCustomPhraseKeyDown(req, resp) {
 		return resp
 	}
+	if ime.handleSuperAbbrevKeyDown(req, resp) {
+		return resp
+	}
 	if ime.handleSecondSelectionKeyDown(req, resp) {
 		return resp
 	}
@@ -395,6 +405,9 @@ func (ime *IME) onKeyUp(req *imecore.Request, resp *imecore.Response) *imecore.R
 	if ime.handleCustomPhraseKeyUp(req, resp) {
 		return resp
 	}
+	if ime.handleSuperAbbrevKeyUp(req, resp) {
+		return resp
+	}
 	if ime.handleSecondSelectionKeyUp(req, resp) {
 		return resp
 	}
@@ -409,6 +422,7 @@ func (ime *IME) onKeyUp(req *imecore.Request, resp *imecore.Response) *imecore.R
 func (ime *IME) onCompositionTerminated(req *imecore.Request, resp *imecore.Response) *imecore.Response {
 	ime.resetAIState()
 	ime.resetCustomPhraseOverlay()
+	ime.resetSuperAbbrevOverlay()
 	ime.resetSecondSelectionShortcut()
 	ime.resetTrackedRawInput()
 	if req.Forced {
@@ -685,6 +699,11 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 			resp.ReturnValue = 0
 			return resp
 		}
+	case ID_OPEN_SUPER_ABBREV:
+		if !ime.openSuperAbbrevFile(resp) {
+			resp.ReturnValue = 0
+			return resp
+		}
 	case ID_USER_DIR:
 		ime.openPath(ime.userDir())
 	case ID_SHARED_DIR:
@@ -709,7 +728,7 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 		}
 		if commandID == ID_INPUT_AUTO_PAIR_QUOTES {
 			ime.autoPairQuotes = !ime.autoPairQuotes
-			ime.saveAppearancePrefs()
+			ime.saveAppearancePrefsWithReason("onCommand:toggle_auto_pair_quotes")
 			resp.CustomizeUI = ime.customizeUIMap()
 			ime.fillResponseFromCurrentState(resp)
 			ime.updateLangStatus(req, resp)
@@ -718,7 +737,7 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 		}
 		if commandID == ID_INPUT_SEMICOLON_SELECT_SECOND {
 			ime.semicolonSelectSecond = !ime.semicolonSelectSecond
-			ime.saveAppearancePrefs()
+			ime.saveAppearancePrefsWithReason("onCommand:toggle_semicolon_select_second")
 			resp.CustomizeUI = ime.customizeUIMap()
 			ime.fillResponseFromCurrentState(resp)
 			ime.updateLangStatus(req, resp)
@@ -1641,6 +1660,13 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 	if len(state.Candidates) > remainingCandidateCount {
 		state.Candidates = append([]candidateItem(nil), state.Candidates[:remainingCandidateCount]...)
 	}
+	if _, overlay, ok := ime.currentSuperAbbrevOverlay(); ok {
+		if len(customPhraseCandidates) > 0 {
+			customPhraseCandidates = applySuperAbbrevOverlayToCandidates(customPhraseCandidates, overlay)
+		} else {
+			state = applySuperAbbrevOverlay(state, overlay)
+		}
+	}
 	if len(state.Candidates) > 0 || len(customPhraseCandidates) > 0 {
 		resp.CandidateList = append(ime.formatCandidates(customPhraseCandidates), ime.formatCandidates(state.Candidates)...)
 		resp.CandidateEntries = append(ime.candidateEntries(customPhraseCandidates), ime.candidateEntries(state.Candidates)...)
@@ -1699,7 +1725,7 @@ func (ime *IME) toggleOption(name string) {
 	ime.backend.SetOption(name, !ime.backend.GetOption(name))
 	if ime.inputStateShared && ime.isSharedInputStateOption(name) {
 		ime.captureSharedInputStateFromBackend()
-		ime.saveAppearancePrefs()
+		ime.saveAppearancePrefsWithReason(fmt.Sprintf("toggleOption:shared_option:%s", name))
 	}
 }
 
@@ -2012,7 +2038,7 @@ func (ime *IME) syncSharedInputStateFromBackendIfChanged() {
 	if !changed {
 		return
 	}
-	ime.saveAppearancePrefs()
+	ime.saveAppearancePrefsWithReason("captureSharedInputStateFromBackend")
 }
 
 func (ime *IME) toggleInputStateShared() {
@@ -2020,7 +2046,7 @@ func (ime *IME) toggleInputStateShared() {
 	if ime.inputStateShared {
 		ime.captureSharedInputStateFromBackend()
 	}
-	ime.saveAppearancePrefs()
+	ime.saveAppearancePrefsWithReason("toggleInputStateShared")
 }
 
 func (ime *IME) addButtons(resp *imecore.Response) {
@@ -2146,7 +2172,8 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 	}
 	if len(schemeSetItems) > 0 || len(schemaItems) > 0 {
 		items = append(items,
-			map[string]interface{}{"id": ID_OPEN_CUSTOM_PHRASE, "text": "打开自定义短语"},
+			map[string]interface{}{"id": ID_OPEN_CUSTOM_PHRASE, "text": "打开置顶短语"},
+			map[string]interface{}{"id": ID_OPEN_SUPER_ABBREV, "text": "打开超级简拼"},
 			map[string]interface{}{"id": ID_UPDATE_CONFIG, "text": "更新配置(&P)"},
 			map[string]interface{}{"id": ID_DEPLOY, "text": "刷新配置(&R)"},
 			map[string]interface{}{"text": ""},

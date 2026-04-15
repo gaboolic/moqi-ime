@@ -18,22 +18,8 @@ import (
 const (
 	customPhraseFileName  = "moqi_custom_phrase.txt"
 	ID_OPEN_CUSTOM_PHRASE = 18
+	customPhraseTemplateFileName = "moqi_custom_phrase.txt"
 )
-
-const defaultCustomPhraseFileContent = `
-# 自定义短语
-# 以 Tab 分割：词汇<Tab>编码<Tab>权重
-# 去	q	3
-# 我	w	3
-# 而	e	3
-# 人	r	3
-# 他	t	3
-# 有	y	3
-# 是	u	3
-# 出	i	3
-# 哦	o	3
-# 配	p	3
-`
 
 type customPhraseEntry struct {
 	Text   string
@@ -79,7 +65,11 @@ func ensureCustomPhraseFileExists() (string, error) {
 	} else if !os.IsNotExist(err) {
 		return "", err
 	}
-	if err := os.WriteFile(path, []byte(defaultCustomPhraseFileContent), 0o644); err != nil {
+	content, err := loadDefaultTemplate(customPhraseTemplateFileName)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, content, 0o644); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -168,7 +158,7 @@ func lookupCustomPhraseCandidates(composition string, limit int) []candidateItem
 
 	entries, err := loadCustomPhraseEntries()
 	if err != nil {
-		log.Printf("加载自定义短语失败: %v", err)
+		log.Printf("加载置顶短语失败: %v", err)
 		return nil
 	}
 
@@ -489,13 +479,13 @@ func (ime *IME) openCustomPhraseFile(resp *imecore.Response) bool {
 	path, err := ensureCustomPhraseFileExists()
 	if err != nil {
 		if resp != nil {
-			resp.TrayNotification = trayNotification("创建自定义短语文件失败", imecore.TrayNotificationIconError)
+			resp.TrayNotification = trayNotification("创建置顶短语文件失败", imecore.TrayNotificationIconError)
 		}
 		return false
 	}
 	if err := openCustomPhraseTargetFunc(path); err != nil {
 		if resp != nil {
-			resp.TrayNotification = trayNotification("打开自定义短语失败", imecore.TrayNotificationIconError)
+			resp.TrayNotification = trayNotification("打开置顶短语失败", imecore.TrayNotificationIconError)
 		}
 		return false
 	}

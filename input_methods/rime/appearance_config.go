@@ -346,7 +346,7 @@ func (ime *IME) loadAppearancePrefs() {
 		}
 	}
 	if loadedPath == "" {
-		ime.saveAppearancePrefs()
+		ime.saveAppearancePrefsWithReason("loadAppearancePrefs:create_default_config")
 		return
 	}
 
@@ -357,11 +357,15 @@ func (ime *IME) loadAppearancePrefs() {
 	ime.applyAppearanceConfig(cfg)
 	ime.appearanceVersion = setSharedAppearanceConfig(cfg)
 	if loadedPath != primaryPath {
-		ime.saveAppearancePrefs()
+		ime.saveAppearancePrefsWithReason("loadAppearancePrefs:migrate_legacy_config")
 	}
 }
 
 func (ime *IME) saveAppearancePrefs() {
+	ime.saveAppearancePrefsWithReason("unspecified")
+}
+
+func (ime *IME) saveAppearancePrefsWithReason(reason string) {
 	path := userAppearanceConfigPath()
 	if path == "" {
 		return
@@ -406,6 +410,17 @@ func (ime *IME) saveAppearancePrefs() {
 	if err != nil {
 		return
 	}
+	debugLogf("saveAppearancePrefs triggered_by=%s path=%q candidate_per_row=%d candidate_count=%d inline_preedit=%t input_state_shared=%t auto_pair_quotes=%t semicolon_select_second=%t theme=%q",
+		strings.TrimSpace(reason),
+		path,
+		candidatePerRow,
+		candidateCount,
+		inlinePreedit,
+		inputStateShared,
+		autoPairQuotes,
+		semicolonSelectSecond,
+		theme,
+	)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return
 	}
@@ -626,6 +641,6 @@ func (ime *IME) applyAppearanceCommand(commandID int) bool {
 	default:
 		return false
 	}
-	ime.saveAppearancePrefs()
+	ime.saveAppearancePrefsWithReason(fmt.Sprintf("applyAppearanceCommand:commandID=%d", commandID))
 	return true
 }
