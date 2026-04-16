@@ -3,6 +3,7 @@
 package rime
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -85,6 +86,7 @@ const (
 	ID_SHARED_INPUT_STATE             = 210
 	ID_INPUT_AUTO_PAIR_QUOTES         = 220
 	ID_INPUT_SEMICOLON_SELECT_SECOND  = 221
+	ID_INPUT_BERT_RERANK              = 222
 
 	aiSelectKeys     = "123456789"
 	aiHotkeyKeyCode  = 0x47 // G
@@ -178,6 +180,16 @@ type IME struct {
 	aiCurrentAction              *aiAction
 	aiReviewGenerator            func(aiGenerateRequest) ([]string, error)
 	aiResultCh                   chan aiAsyncResult
+	bertEnabled                  bool
+	bertPending                  bool
+	bertPendingKey               string
+	bertRequestSeq               uint64
+	bertConfig                   *bertRuntimeConfig
+	bertReranker                 bertReranker
+	bertCache                    *bertRerankCache
+	bertResultCh                 chan bertAsyncResult
+	bertCursor                   int
+	bertConsumeKeyUpCode         int
 	asyncResponseSender          func(*imecore.Response)
 	aiRequestSeq                 uint64
 	appearanceVersion            uint64
@@ -232,6 +244,10 @@ func New(client *imecore.Client) imecore.TextService {
 	if err != nil {
 		log.Printf("加载 AI 配置失败: %v", err)
 	}
+	bertCfg, bertErr := loadBertConfig()
+	if bertErr != nil {
+		log.Printf("加载 BERT 配置失败: %v", bertErr)
+	}
 	generator := newConfiguredAIReviewGenerator(cfg)
 	actions := defaultAIActions(cfg)
 	ime := &IME{
@@ -241,8 +257,15 @@ func New(client *imecore.Client) imecore.TextService {
 		aiActions:         actions,
 		aiReviewGenerator: generator,
 		aiResultCh:        make(chan aiAsyncResult, 4),
+		bertConfig:        bertCfg,
+		bertCache:         newBertRerankCache(defaultBertCacheTTL),
+		bertResultCh:      make(chan bertAsyncResult, 4),
+	}
+	if bertCfg != nil && bertCfg.CacheTTL > 0 {
+		ime.bertCache = newBertRerankCache(bertCfg.CacheTTL)
 	}
 	ime.loadAppearancePrefs()
+	ime.syncBertRuntimeWithPreference()
 	return ime
 }
 
@@ -257,6 +280,21 @@ func (ime *IME) SetAIReviewGenerator(generator func(aiGenerateRequest) ([]string
 	}
 }
 
+func (ime *IME) SetBertReranker(reranker bertReranker, cfg *bertRuntimeConfig) {
+	if ime.bertReranker != nil && ime.bertReranker != reranker {
+		_ = ime.bertReranker.Close()
+	}
+	ime.bertReranker = reranker
+	ime.bertConfig = cfg
+	if ime.bertCache == nil {
+		ime.bertCache = newBertRerankCache(defaultBertCacheTTL)
+	}
+	if cfg != nil && cfg.CacheTTL > 0 {
+		ime.bertCache = newBertRerankCache(cfg.CacheTTL)
+	}
+	ime.resetBertState()
+}
+
 func (ime *IME) SetAsyncResponseSender(sender func(*imecore.Response)) {
 	ime.asyncResponseSender = sender
 }
@@ -268,15 +306,24 @@ func (ime *IME) ensureAIResultCh() chan aiAsyncResult {
 	return ime.aiResultCh
 }
 
+func (ime *IME) ensureBertResultCh() chan bertAsyncResult {
+	if ime.bertResultCh == nil {
+		ime.bertResultCh = make(chan bertAsyncResult, 4)
+	}
+	return ime.bertResultCh
+}
+
 func (ime *IME) HandleRequest(req *imecore.Request) *imecore.Response {
 	ime.mu.Lock()
 	defer ime.mu.Unlock()
 
 	resp := imecore.NewResponse(req.SeqNum, true)
 	if ime.syncAppearancePrefs() {
+		ime.syncBertRuntimeWithPreference()
 		ime.sharedInputStateNeedsApply = ime.inputStateShared
 		resp.CustomizeUI = ime.customizeUIMap()
 	}
+	ime.consumeBertAsyncResult()
 	ime.consumeAIAsyncResult(resp)
 	ime.consumeBackendNotification(resp)
 	traceLogf("RIME 输入法处理请求 client=%s seq=%d method=%s", ime.Client.ID, req.SeqNum, req.Method)
@@ -333,6 +380,9 @@ func (ime *IME) filterKeyDown(req *imecore.Request, resp *imecore.Response) *ime
 	if ime.handleSuperAbbrevKeyDownFilter(req, resp) {
 		return resp
 	}
+	if ime.handleBertKeyDownFilter(req, resp) {
+		return resp
+	}
 	if ime.handleSecondSelectionKeyDownFilter(req, resp) {
 		return resp
 	}
@@ -362,6 +412,9 @@ func (ime *IME) filterKeyUp(req *imecore.Request, resp *imecore.Response) *imeco
 	if ime.handleSuperAbbrevKeyUpFilter(req, resp) {
 		return resp
 	}
+	if ime.handleBertKeyUpFilter(req, resp) {
+		return resp
+	}
 	if ime.handleSecondSelectionKeyUpFilter(req, resp) {
 		return resp
 	}
@@ -387,6 +440,9 @@ func (ime *IME) onKeyDown(req *imecore.Request, resp *imecore.Response) *imecore
 	if ime.handleSuperAbbrevKeyDown(req, resp) {
 		return resp
 	}
+	if ime.handleBertKeyDown(req, resp) {
+		return resp
+	}
 	if ime.handleSecondSelectionKeyDown(req, resp) {
 		return resp
 	}
@@ -408,6 +464,9 @@ func (ime *IME) onKeyUp(req *imecore.Request, resp *imecore.Response) *imecore.R
 	if ime.handleSuperAbbrevKeyUp(req, resp) {
 		return resp
 	}
+	if ime.handleBertKeyUp(req, resp) {
+		return resp
+	}
 	if ime.handleSecondSelectionKeyUp(req, resp) {
 		return resp
 	}
@@ -423,6 +482,7 @@ func (ime *IME) onCompositionTerminated(req *imecore.Request, resp *imecore.Resp
 	ime.resetAIState()
 	ime.resetCustomPhraseOverlay()
 	ime.resetSuperAbbrevOverlay()
+	ime.resetBertState()
 	ime.resetSecondSelectionShortcut()
 	ime.resetTrackedRawInput()
 	if req.Forced {
@@ -744,6 +804,14 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 			resp.ReturnValue = 1
 			return resp
 		}
+		if commandID == ID_INPUT_BERT_RERANK {
+			ime.setBertEnabled(!ime.bertEnabled, resp)
+			resp.CustomizeUI = ime.customizeUIMap()
+			ime.fillResponseFromCurrentState(resp)
+			ime.updateLangStatus(req, resp)
+			resp.ReturnValue = 1
+			return resp
+		}
 		if ime.handleSwitchCommand(commandID) {
 			ime.resetAIState()
 			resp.ReturnValue = 1
@@ -860,6 +928,10 @@ func (ime *IME) Init(req *imecore.Request) bool {
 
 func (ime *IME) Close() {
 	ime.destroySession(nil)
+	if ime.bertReranker != nil {
+		_ = ime.bertReranker.Close()
+		ime.bertReranker = nil
+	}
 	log.Println("RIME 输入法关闭")
 }
 
@@ -1231,6 +1303,122 @@ func collectAICandidateTexts(items []candidateItem, limit int) []string {
 	return candidates
 }
 
+func (ime *IME) shouldBertRerankState(state rimeState) bool {
+	if !ime.bertEnabled || ime.bertReranker == nil || ime.bertConfig == nil {
+		return false
+	}
+	if ime.aiActive || ime.aiPending {
+		return false
+	}
+	if state.PageNo > 0 || strings.TrimSpace(state.Composition) == "" {
+		return false
+	}
+	return len(state.Candidates) > 1
+}
+
+func (ime *IME) bertRequestForState(state rimeState) (bertRerankRequest, string, bool) {
+	if !ime.shouldBertRerankState(state) {
+		return bertRerankRequest{}, "", false
+	}
+	request := ime.buildBertRequest(state)
+	if len(request.Candidates) <= 1 {
+		return bertRerankRequest{}, "", false
+	}
+	return request, buildBertRequestKey(request), true
+}
+
+func (ime *IME) maybeApplyBertRerank(state rimeState) rimeState {
+	request, key, ok := ime.bertRequestForState(state)
+	if !ok {
+		return state
+	}
+	if ime.bertCache != nil {
+		if cached, ok := ime.bertCache.Get(key); ok {
+			state.Candidates = reorderCandidateItems(state.Candidates, cached)
+			if len(cached.Order) > 0 && !sameIntSlice(cached.Order, identityBertRerankResult(len(request.Candidates)).Order) {
+				if ime.bertCursor < 0 {
+					ime.bertCursor = 0
+				}
+				if maxCursor := len(state.Candidates) - 1; ime.bertCursor > maxCursor {
+					ime.bertCursor = maxCursor
+				}
+				state.CandidateCursor = ime.bertCursor
+			} else {
+				state.CandidateCursor = 0
+			}
+			return state
+		}
+	}
+	ime.triggerBertRerank(request, key)
+	return state
+}
+
+func (ime *IME) bertVisibleOrderForState(state rimeState) []int {
+	request, key, ok := ime.bertRequestForState(state)
+	if !ok {
+		order := make([]int, len(state.Candidates))
+		for i := range order {
+			order[i] = i
+		}
+		return order
+	}
+	if ime.bertCache != nil {
+		if cached, ok := ime.bertCache.Get(key); ok {
+			return append([]int(nil), cached.Order...)
+		}
+	}
+	return identityBertRerankResult(len(request.Candidates)).Order
+}
+
+func (ime *IME) triggerBertRerank(request bertRerankRequest, key string) bool {
+	if ime.bertReranker == nil || key == "" {
+		return false
+	}
+	if ime.bertPending && ime.bertPendingKey == key {
+		return false
+	}
+	ime.bertRequestSeq++
+	requestSeq := ime.bertRequestSeq
+	ime.bertPending = true
+	ime.bertPendingKey = key
+	resultCh := ime.ensureBertResultCh()
+	sender := ime.asyncResponseSender
+	reranker := ime.bertReranker
+	candidateCount := len(request.Candidates)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), defaultBertTimeout())
+		defer cancel()
+		result, err := reranker.Rerank(ctx, request)
+		if err != nil {
+			result = shortBertFailureResult(candidateCount)
+		}
+		asyncResult := bertAsyncResult{
+			RequestSeq: requestSeq,
+			Key:        key,
+			Result:     result,
+			Err:        err,
+		}
+		if sender != nil {
+			var updateResp *imecore.Response
+			ime.mu.Lock()
+			if ime.applyBertAsyncResult(asyncResult) {
+				updateResp = imecore.NewResponse(0, true)
+				ime.fillResponseFromCurrentState(updateResp)
+				if !updateResp.ShowCandidates && len(updateResp.CandidateList) == 0 && updateResp.CompositionString == "" {
+					updateResp = nil
+				}
+			}
+			ime.mu.Unlock()
+			if updateResp != nil {
+				sender(updateResp)
+			}
+			return
+		}
+		resultCh <- asyncResult
+	}()
+	return true
+}
+
 func (ime *IME) currentVisibleBackendState() (rimeState, bool) {
 	if ime.backend == nil || !ime.backendReady() {
 		return rimeState{}, false
@@ -1348,8 +1536,13 @@ func (ime *IME) commitBackendOverlayCandidate(resp *imecore.Response, backendInd
 		return false
 	}
 	ime.resetAIState()
+	ime.resetBertState()
 	ime.resetCustomPhraseOverlay()
 	if ime.backend == nil || !ime.backendReady() {
+		return false
+	}
+	backendIndex = ime.resolveVisibleBackendCandidateIndex(backendIndex)
+	if backendIndex < 0 {
 		return false
 	}
 	if !ime.backend.SelectCandidate(backendIndex) {
@@ -1359,6 +1552,18 @@ func (ime *IME) commitBackendOverlayCandidate(resp *imecore.Response, backendInd
 	debugLogf("backend overlay select succeeded backendIndex=%d", backendIndex)
 	resp.ReturnValue = boolToInt(ime.onKey(&imecore.Request{}, resp))
 	return true
+}
+
+func (ime *IME) resolveVisibleBackendCandidateIndex(visibleIndex int) int {
+	state, ok := ime.currentVisibleBackendState()
+	if !ok || visibleIndex < 0 || visibleIndex >= len(state.Candidates) {
+		return visibleIndex
+	}
+	order := ime.bertVisibleOrderForState(state)
+	if visibleIndex >= len(order) {
+		return visibleIndex
+	}
+	return order[visibleIndex]
 }
 
 func (ime *IME) resetAIState() {
@@ -1500,6 +1705,7 @@ func (ime *IME) createSession(resp *imecore.Response) {
 
 func (ime *IME) destroySession(resp *imecore.Response) {
 	ime.resetAIState()
+	ime.resetBertState()
 	ime.resetCustomPhraseOverlay()
 	ime.resetSecondSelectionShortcut()
 	ime.resetTrackedRawInput()
@@ -1554,6 +1760,10 @@ func (ime *IME) redeploy(req *imecore.Request, resp *imecore.Response) bool {
 	}
 	if ime.backend == nil {
 		log.Println("重新部署失败，原生 RIME 后端不可用")
+		return false
+	}
+	if err := ime.reloadBertConfig(); err != nil {
+		log.Printf("重新加载 BERT 配置失败: %v", err)
 		return false
 	}
 	if err := ime.reloadAIConfig(); err != nil {
@@ -1625,6 +1835,154 @@ func (ime *IME) reloadAIConfig() error {
 	return nil
 }
 
+func (ime *IME) reloadBertConfig() error {
+	cfg, err := loadBertConfig()
+	if err != nil {
+		return err
+	}
+	if !ime.bertEnabled {
+		ime.SetBertReranker(nil, cfg)
+		log.Printf("BERT 配置已重新加载 enabled=%t provider=%q", ime.bertEnabled, bertProviderLabel(cfg))
+		return nil
+	}
+	if cfg == nil {
+		return fmt.Errorf("BERT config is missing")
+	}
+	if len(bertMissingAssetPaths(cfg)) > 0 {
+		return fmt.Errorf("BERT model files are missing")
+	}
+	reranker, err := newConfiguredBertReranker(cfg)
+	if err != nil {
+		return err
+	}
+	ime.SetBertReranker(reranker, cfg)
+	log.Printf("BERT 配置已重新加载 enabled=%t provider=%q", ime.bertEnabled, bertProviderLabel(cfg))
+	return nil
+}
+
+func bertProviderLabel(cfg *bertRuntimeConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.Provider
+}
+
+func (ime *IME) syncBertRuntimeWithPreference() bool {
+	if !ime.bertEnabled {
+		if ime.bertReranker != nil {
+			ime.SetBertReranker(nil, ime.bertConfig)
+			return true
+		}
+		return false
+	}
+	if ime.bertReranker != nil {
+		return false
+	}
+	if err := ime.reloadBertConfig(); err != nil {
+		log.Printf("初始化 BERT 重排器失败: %v", err)
+		ime.bertEnabled = false
+		ime.saveAppearancePrefsWithReason("syncBertRuntimeWithPreference:disable_after_init_failure")
+		return true
+	}
+	return true
+}
+
+func (ime *IME) setBertEnabled(enabled bool, resp *imecore.Response) bool {
+	if !enabled {
+		ime.bertEnabled = false
+		ime.SetBertReranker(nil, ime.bertConfig)
+		ime.saveAppearancePrefsWithReason("onCommand:toggle_bert_rerank")
+		return true
+	}
+
+	cfg, err := loadBertConfig()
+	if err != nil {
+		if resp != nil {
+			resp.TrayNotification = trayNotification("加载 BERT 配置失败", imecore.TrayNotificationIconError)
+			resp.ShowMessage = &imecore.MessageWindow{
+				Message:  fmt.Sprintf("加载 BERT 配置失败：\n%v", err),
+				Duration: 8000,
+			}
+		}
+		return false
+	}
+	if cfg == nil {
+		if resp != nil {
+			resp.TrayNotification = trayNotification("未找到 BERT 配置", imecore.TrayNotificationIconError)
+			resp.ShowMessage = &imecore.MessageWindow{
+				Message:  "未找到 bert_config.json，无法启用 BERT 整句优化。",
+				Duration: 8000,
+			}
+		}
+		return false
+	}
+	if len(bertMissingAssetPaths(cfg)) > 0 {
+		if resp != nil {
+			resp.TrayNotification = trayNotification("BERT 模型文件缺失，请先手动下载", imecore.TrayNotificationIconWarning)
+			resp.ShowMessage = &imecore.MessageWindow{
+				Message:  bertMissingAssetsMessage(cfg),
+				Duration: 12000,
+			}
+		}
+		return false
+	}
+
+	reranker, err := newConfiguredBertReranker(cfg)
+	if err != nil {
+		if resp != nil {
+			resp.TrayNotification = trayNotification("启用 BERT 失败", imecore.TrayNotificationIconError)
+			resp.ShowMessage = &imecore.MessageWindow{
+				Message:  fmt.Sprintf("启用 BERT 整句优化失败：\n%v", err),
+				Duration: 8000,
+			}
+		}
+		return false
+	}
+
+	ime.SetBertReranker(reranker, cfg)
+	ime.bertEnabled = true
+	ime.saveAppearancePrefsWithReason("onCommand:toggle_bert_rerank")
+	return true
+}
+
+func (ime *IME) resetBertState() {
+	ime.bertPending = false
+	ime.bertPendingKey = ""
+	ime.bertCursor = 0
+	ime.bertConsumeKeyUpCode = 0
+	ime.bertRequestSeq++
+}
+
+func (ime *IME) consumeBertAsyncResult() {
+	resultCh := ime.ensureBertResultCh()
+	for {
+		select {
+		case result := <-resultCh:
+			ime.applyBertAsyncResult(result)
+		default:
+			return
+		}
+	}
+}
+
+func (ime *IME) applyBertAsyncResult(result bertAsyncResult) bool {
+	if result.RequestSeq != ime.bertRequestSeq || result.Key != ime.bertPendingKey {
+		return false
+	}
+	ime.bertPending = false
+	ime.bertPendingKey = ""
+	if ime.bertCache == nil {
+		ime.bertCache = newBertRerankCache(defaultBertCacheTTL)
+	}
+	if result.Err != nil {
+		log.Printf("BERT 候选重排失败: %v", result.Err)
+		ime.bertCache.PutWithTTL(result.Key, result.Result, defaultBertFailureCacheTTL)
+		return false
+	}
+	ime.bertCache.Put(result.Key, result.Result)
+	return true
+}
+
 func (ime *IME) clearResponse(resp *imecore.Response) {
 	if resp == nil {
 		return
@@ -1670,6 +2028,7 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 	resp.CompositionCursor = state.CursorPos
 	resp.SelStart = state.SelStart
 	resp.SelEnd = state.SelEnd
+	state = ime.maybeApplyBertRerank(state)
 	customPhraseCandidates := ime.visibleCustomPhraseCandidatesForState(state)
 	if _, overlay, ok := ime.currentSuperAbbrevOverlay(); ok {
 		if len(customPhraseCandidates) > 0 {
@@ -2303,6 +2662,7 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 		map[string]interface{}{"text": "输入设置", "submenu": []map[string]interface{}{
 			{"id": ID_INPUT_AUTO_PAIR_QUOTES, "text": "自动插入成对引号", "checked": ime.autoPairQuotes},
 			{"id": ID_INPUT_SEMICOLON_SELECT_SECOND, "text": "分号键次选", "checked": ime.semicolonSelectSecond},
+			{"id": ID_INPUT_BERT_RERANK, "text": "BERT 整句优化", "checked": ime.bertEnabled},
 		}},
 		map[string]interface{}{"text": "打开文件夹(&O)", "submenu": []map[string]interface{}{
 			{"id": ID_USER_DIR, "text": "用户文件夹"},

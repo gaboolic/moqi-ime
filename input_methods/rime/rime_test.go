@@ -35,6 +35,17 @@ func writeTestAIConfig(t *testing.T, appData string, body string) {
 	}
 }
 
+func writeTestBertConfig(t *testing.T, appData, body string) {
+	t.Helper()
+	configPath := filepath.Join(appData, APP, bertConfigFileName)
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("create BERT config dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatalf("write BERT config: %v", err)
+	}
+}
+
 func writeTestSchemeSetConfig(t *testing.T, appData, current string) {
 	t.Helper()
 	configPath := filepath.Join(appData, APP, schemeSetConfigFileName)
@@ -1947,8 +1958,8 @@ func TestBuildMenuIncludesInputSettingsSubmenu(t *testing.T) {
 	}
 
 	submenu, ok := inputSettingsMenu["submenu"].([]map[string]interface{})
-	if !ok || len(submenu) != 2 {
-		t.Fatalf("expected two input settings items, got %#v", inputSettingsMenu["submenu"])
+	if !ok || len(submenu) != 3 {
+		t.Fatalf("expected three input settings items, got %#v", inputSettingsMenu["submenu"])
 	}
 	if text, _ := submenu[0]["text"].(string); text != "自动插入成对引号" {
 		t.Fatalf("unexpected input settings item: %#v", submenu[0])
@@ -1961,6 +1972,12 @@ func TestBuildMenuIncludesInputSettingsSubmenu(t *testing.T) {
 	}
 	if checked, _ := submenu[1]["checked"].(bool); checked {
 		t.Fatalf("expected semicolon select second disabled by default, got %#v", submenu[1])
+	}
+	if text, _ := submenu[2]["text"].(string); text != "BERT 整句优化" {
+		t.Fatalf("unexpected third input settings item: %#v", submenu[2])
+	}
+	if checked, _ := submenu[2]["checked"].(bool); checked {
+		t.Fatalf("expected BERT rerank disabled by default, got %#v", submenu[2])
 	}
 }
 
@@ -2031,6 +2048,49 @@ func TestOnCommandTogglesSemicolonSelectSecond(t *testing.T) {
 	}
 	if got := persisted["semicolon_select_second"]; got != true {
 		t.Fatalf("expected persisted semicolon_select_second true, got %#v", got)
+	}
+}
+
+func TestOnCommandEnableBertWithoutModelShowsDownloadHint(t *testing.T) {
+	appData := t.TempDir()
+	programFiles := filepath.Join(t.TempDir(), "ProgramFilesX86")
+	t.Setenv("APPDATA", appData)
+	t.Setenv("PROGRAMFILES(X86)", programFiles)
+	resetSharedAppearanceConfigForTest()
+	writeTestBertConfig(t, appData, `{
+  "enabled": false,
+  "provider": "onnx_cross_encoder",
+  "model_path": "bert/model.onnx",
+  "vocab_path": "bert/vocab.txt",
+  "runtime_library_path": "bert/onnxruntime.dll"
+}`)
+
+	ime := newIsolatedTestIME(t)
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 23,
+		ID:     imecore.FlexibleID{Int: ID_INPUT_BERT_RERANK, IsInt: true},
+	}, imecore.NewResponse(23, true))
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected BERT toggle command handled, got %d", resp.ReturnValue)
+	}
+	if ime.bertEnabled {
+		t.Fatal("expected BERT to remain disabled when model files are missing")
+	}
+	if resp.TrayNotification == nil || resp.TrayNotification.Message != "BERT 模型文件缺失，请先手动下载" {
+		t.Fatalf("unexpected tray notification: %#v", resp.TrayNotification)
+	}
+	if resp.ShowMessage == nil {
+		t.Fatal("expected missing-model hint message")
+	}
+	if !strings.Contains(resp.ShowMessage.Message, bertModelDownloadURL) {
+		t.Fatalf("expected download URL in message, got %q", resp.ShowMessage.Message)
+	}
+	if !strings.Contains(resp.ShowMessage.Message, filepath.Join(programFiles, "MoqiIM", "bert")) {
+		t.Fatalf("expected install path in message, got %q", resp.ShowMessage.Message)
+	}
+	if got, ok := resp.CustomizeUI["bertEnabled"].(bool); !ok || got {
+		t.Fatalf("expected customizeUI bertEnabled false, got %#v", resp.CustomizeUI["bertEnabled"])
 	}
 }
 
@@ -2300,7 +2360,7 @@ func TestSuperAbbrevTabCommitsOverlayText(t *testing.T) {
 	backend.candidates = []candidateItem{{Text: "发"}}
 
 	filterResp := ime.filterKeyDown(&imecore.Request{
-		SeqNum: 401,
+		SeqNum:  401,
 		KeyCode: vkTab,
 	}, imecore.NewResponse(401, true))
 	if filterResp.ReturnValue != 1 {
@@ -2308,7 +2368,7 @@ func TestSuperAbbrevTabCommitsOverlayText(t *testing.T) {
 	}
 
 	onResp := ime.onKeyDown(&imecore.Request{
-		SeqNum: 402,
+		SeqNum:  402,
 		KeyCode: vkTab,
 	}, imecore.NewResponse(402, true))
 	if onResp.ReturnValue != 1 {
@@ -2372,7 +2432,7 @@ func TestSuperAbbrevTabCommitsOverlayTextWhenCustomPhraseIsFirst(t *testing.T) {
 	backend.candidates = []candidateItem{{Text: "发"}}
 
 	filterResp := ime.filterKeyDown(&imecore.Request{
-		SeqNum: 405,
+		SeqNum:  405,
 		KeyCode: vkTab,
 	}, imecore.NewResponse(405, true))
 	if filterResp.ReturnValue != 1 {
@@ -2380,7 +2440,7 @@ func TestSuperAbbrevTabCommitsOverlayTextWhenCustomPhraseIsFirst(t *testing.T) {
 	}
 
 	onResp := ime.onKeyDown(&imecore.Request{
-		SeqNum: 406,
+		SeqNum:  406,
 		KeyCode: vkTab,
 	}, imecore.NewResponse(406, true))
 	if onResp.ReturnValue != 1 {

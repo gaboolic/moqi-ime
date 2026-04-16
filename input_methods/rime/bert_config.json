@@ -1,0 +1,21 @@
+{
+  "enabled": false,
+  "provider": "onnx_cross_encoder",
+  "model_path": "bert/model.onnx",
+  "vocab_path": "bert/vocab.txt",
+  "runtime_library_path": "bert/onnxruntime.dll",
+  "lower_case": true,
+  "max_sequence_length": 96,
+  "max_candidates": 5,
+  "left_context_runes": 48,
+  "positive_label_index": 1,
+  "cache_ttl_seconds": 120,
+  "input_names": [
+    "input_ids",
+    "attention_mask",
+    "token_type_ids"
+  ],
+  "output_names": [
+    "logits"
+  ]
+}

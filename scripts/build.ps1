@@ -11,11 +11,15 @@
 
 .PARAMETER PackageDir
   Packaged runtime directory (default: scripts\build\moqi-ime).
+
+.PARAMETER CCompiler
+  Optional explicit C compiler path for CGO builds (clang.exe, gcc.exe, or cl.exe).
 #>
 param(
     [string] $RepoRoot = "",
     [string] $BuildRoot = "",
-    [string] $PackageDir = ""
+    [string] $PackageDir = "",
+    [string] $CCompiler = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -112,6 +116,56 @@ function Copy-DirectoryContents {
 
     Ensure-Directory -Path $Destination
     Copy-Item -Path (Join-Path $Source "*") -Destination $Destination -Recurse -Force
+}
+
+function Get-BertRuntimeConfig {
+    param([string] $ConfigPath)
+
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        return $null
+    }
+
+    try {
+        return Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    }
+    catch {
+        Write-Warning ("Failed to parse bert_config.json: {0}" -f $_.Exception.Message)
+        return $null
+    }
+}
+
+function Get-AvailableCCompiler {
+    param([string] $RequestedCompiler = "")
+
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($RequestedCompiler)) {
+        $candidates += $RequestedCompiler
+    }
+    foreach ($name in @("MOQI_C_COMPILER", "CC")) {
+        $value = [Environment]::GetEnvironmentVariable($name)
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            $candidates += $value
+        }
+    }
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+        if (Test-Path -LiteralPath $candidate) {
+            return [System.IO.Path]::GetFullPath($candidate)
+        }
+        $command = Get-Command $candidate -ErrorAction SilentlyContinue
+        if ($command) {
+            return $command.Name
+        }
+    }
+    foreach ($name in @("gcc", "clang", "clang-cl", "cl")) {
+        $command = Get-Command $name -ErrorAction SilentlyContinue
+        if ($command) {
+            return $name
+        }
+    }
+    return ""
 }
 
 function Prepare-RimeData {
@@ -213,9 +267,13 @@ $RimeDir = Join-Path $InputMethodsDir "rime"
 $RimeDataDir = Join-Path $RepoRoot "rime-frost"
 $PackageRimeDir = Join-Path $PackageDir "input_methods\rime"
 $PackageRimeDataDir = Join-Path $PackageRimeDir "data"
+$BertConfigPath = Join-Path $RimeDir "bert_config.json"
+$BertSourceDir = Join-Path $RimeDir "bert"
+$BertRuntimeDLL = Join-Path $BertSourceDir "onnxruntime.dll"
 $ServerIcon = Join-Path $IconsDir "mo.ico"
 $ServerVersionInfo = Join-Path $BuildRoot "server.versioninfo.json"
 $ServerResource = Join-Path $RepoRoot "resource_windows_amd64.syso"
+$BertRuntimeConfig = Get-BertRuntimeConfig -ConfigPath $BertConfigPath
 
 Write-Host "============================================"
 Write-Host " Moqi IME Go Backend Build Script"
@@ -257,10 +315,24 @@ try {
     $oldGoos = $env:GOOS
     $oldGoarch = $env:GOARCH
     $oldCgoEnabled = $env:CGO_ENABLED
+    $oldCC = $env:CC
     $goversioninfo = Get-GoTool -ToolName "goversioninfo" -ModuleAtVersion "github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest"
     $env:GOOS = "windows"
     $env:GOARCH = "amd64"
-    $env:CGO_ENABLED = "0"
+    $availableCompiler = Get-AvailableCCompiler -RequestedCompiler $CCompiler
+    $useCgo = $false
+    $shouldBuildBertRuntime = (Test-Path -LiteralPath $BertRuntimeDLL)
+    if ($shouldBuildBertRuntime) {
+        if ($availableCompiler) {
+            Write-Host ("[INFO] BERT runtime detected; using C compiler: {0}" -f $availableCompiler)
+            $useCgo = $true
+            $env:CC = $availableCompiler
+        }
+        else {
+            Write-Warning "BERT runtime assets are present but no C compiler was found. Pass -CCompiler or set CC/MOQI_C_COMPILER to build the real reranker; otherwise the stub reranker will be used."
+        }
+    }
+    $env:CGO_ENABLED = if ($useCgo) { "1" } else { "0" }
 
     try {
         if (-not (Test-Path -LiteralPath $ServerIcon)) {
@@ -278,6 +350,7 @@ try {
         $env:GOOS = $oldGoos
         $env:GOARCH = $oldGoarch
         $env:CGO_ENABLED = $oldCgoEnabled
+        $env:CC = $oldCC
     }
 
     Write-Host "[INFO] Built: `"$ServerExe`""
@@ -303,6 +376,27 @@ try {
 
     Write-Step -Title "Step 6: Prepare packaged Rime shared data"
     Prepare-RimeData -RimeDataDir $RimeDataDir -PackageRimeDataDir $PackageRimeDataDir
+
+    if ($BertRuntimeConfig -and $BertRuntimeConfig.enabled) {
+        if (-not (Test-Path -LiteralPath $BertSourceDir)) {
+            throw "BERT is enabled but source asset directory is missing: `"$BertSourceDir`""
+        }
+        foreach ($requiredAsset in @("onnxruntime.dll")) {
+            $assetPath = Join-Path $BertSourceDir $requiredAsset
+            if (-not (Test-Path -LiteralPath $assetPath)) {
+                throw "BERT is enabled but required asset is missing: `"$assetPath`""
+            }
+        }
+        $packageBertDir = Join-Path $PackageRimeDir "bert"
+        Write-Host ("[INFO] BERT assets packaged in `"{0}`"" -f $packageBertDir)
+    }
+    foreach ($assetName in @("model.onnx", "model.onnx.data", "vocab.txt", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json")) {
+        $packagedAsset = Join-Path $PackageRimeDir ("bert\" + $assetName)
+        if (Test-Path -LiteralPath $packagedAsset) {
+            Remove-Item -LiteralPath $packagedAsset -Force
+            Write-Host ("[INFO] Removed packaged optional BERT asset `"{0}`"" -f $packagedAsset)
+        }
+    }
 
     $pathsToRemove = @(
         @{ Path = Join-Path $PackageDir "input_methods\rime\data\others"; Label = "rime shared data others directory" },
@@ -356,4 +450,5 @@ Write-Host "2. Ensure C:\Program Files (x86)\MoqiIM\backends.json includes moqi-
 Write-Host "3. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\*\ime.json exists."
 Write-Host "4. Re-register both MoqiTextService.dll files after copying."
 Write-Host "5. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\rime contains rime.dll."
-Write-Host "6. Start or restart MoqiLauncher.exe after install."
+Write-Host "6. If you want BERT reranking, keep input_methods\rime\bert\onnxruntime.dll in the package and place model.onnx, model.onnx.data, and vocab.txt under C:\Program Files (x86)\MoqiIM\bert."
+Write-Host "7. Start or restart MoqiLauncher.exe after install."

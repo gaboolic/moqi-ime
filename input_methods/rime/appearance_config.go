@@ -30,6 +30,7 @@ type appearanceConfig struct {
 	SharedTraditionalization    *bool           `json:"shared_traditionalization,omitempty"`
 	AutoPairQuotes              *bool           `json:"auto_pair_quotes,omitempty"`
 	SemicolonSelectSecond       *bool           `json:"semicolon_select_second,omitempty"`
+	BertEnabled                 *bool           `json:"bert_enabled,omitempty"`
 }
 
 var appearanceState struct {
@@ -82,6 +83,7 @@ func cloneAppearanceConfig(cfg appearanceConfig) appearanceConfig {
 		SharedTraditionalization:    cloneBoolPtr(cfg.SharedTraditionalization),
 		AutoPairQuotes:              cloneBoolPtr(cfg.AutoPairQuotes),
 		SemicolonSelectSecond:       cloneBoolPtr(cfg.SemicolonSelectSecond),
+		BertEnabled:                 cloneBoolPtr(cfg.BertEnabled),
 	}
 }
 
@@ -313,6 +315,9 @@ func (ime *IME) applyAppearanceConfig(cfg appearanceConfig) {
 	if cfg.SemicolonSelectSecond != nil {
 		ime.semicolonSelectSecond = *cfg.SemicolonSelectSecond
 	}
+	if cfg.BertEnabled != nil {
+		ime.bertEnabled = *cfg.BertEnabled
+	}
 }
 
 func (ime *IME) loadAppearancePrefs() {
@@ -393,6 +398,8 @@ func (ime *IME) saveAppearancePrefsWithReason(reason string) {
 	cfg.AutoPairQuotes = &autoPairQuotes
 	semicolonSelectSecond := ime.semicolonSelectSecond
 	cfg.SemicolonSelectSecond = &semicolonSelectSecond
+	bertEnabled := ime.bertEnabled
+	cfg.BertEnabled = &bertEnabled
 	if !isBuiltinTheme(theme) || theme == "custom" {
 		backgroundColor := ime.style.CandidateBackgroundColor
 		highlightColor := ime.style.CandidateHighlightColor
@@ -410,7 +417,7 @@ func (ime *IME) saveAppearancePrefsWithReason(reason string) {
 	if err != nil {
 		return
 	}
-	debugLogf("saveAppearancePrefs triggered_by=%s path=%q candidate_per_row=%d candidate_count=%d inline_preedit=%t input_state_shared=%t auto_pair_quotes=%t semicolon_select_second=%t theme=%q",
+	debugLogf("saveAppearancePrefs triggered_by=%s path=%q candidate_per_row=%d candidate_count=%d inline_preedit=%t input_state_shared=%t auto_pair_quotes=%t semicolon_select_second=%t bert_enabled=%t theme=%q",
 		strings.TrimSpace(reason),
 		path,
 		candidatePerRow,
@@ -419,6 +426,7 @@ func (ime *IME) saveAppearancePrefsWithReason(reason string) {
 		inputStateShared,
 		autoPairQuotes,
 		semicolonSelectSecond,
+		bertEnabled,
 		theme,
 	)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
@@ -474,6 +482,7 @@ func (ime *IME) customizeUIMap() map[string]interface{} {
 		"inlinePreedit":          ime.inlinePreeditEnabled(),
 		"autoPairQuotes":         ime.autoPairQuotes,
 		"semicolonSelectSecond":  ime.semicolonSelectSecond,
+		"bertEnabled":            ime.bertEnabled,
 	}
 }
 

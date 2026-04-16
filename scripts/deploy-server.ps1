@@ -142,28 +142,29 @@ function Sync-GoBackendRuntime {
     Write-Host "[INFO] moqi-ime runtime directory synced."
 }
 
-function Sync-RimeUserAIConfig {
+function Sync-RimeUserConfig {
     param(
         [string]$SourceConfig,
-        [string]$AppDataPath
+        [string]$AppDataPath,
+        [string]$FileName
     )
 
     if (-not $AppDataPath) {
-        Write-Host "[WARN] APPDATA is empty, skipping user ai_config.json sync."
+        Write-Host ("[WARN] APPDATA is empty, skipping user {0} sync." -f $FileName)
         return
     }
 
     $destinationDir = Join-Path $AppDataPath "Moqi"
-    $destinationConfig = Join-Path $destinationDir "ai_config.json"
+    $destinationConfig = Join-Path $destinationDir $FileName
 
-    Write-Host "[INFO] Syncing user ai_config.json ..."
+    Write-Host ("[INFO] Syncing user {0} ..." -f $FileName)
 
     if (-not (Test-Path -LiteralPath $destinationDir)) {
         New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
     }
 
     Copy-Item -LiteralPath $SourceConfig -Destination $destinationConfig -Force
-    Write-Host ("[INFO] User ai_config.json synced to {0}" -f $destinationConfig)
+    Write-Host ("[INFO] User {0} synced to {1}" -f $FileName, $destinationConfig)
 }
 
 if (-not (Test-Admin)) {
@@ -187,8 +188,9 @@ $sourceDataDir = Join-Path $SourceRoot "input_methods\rime\data"
 $sourceIconsDir = Join-Path $SourceRoot "input_methods\rime\icons"
 $sourceIMEJSON = Join-Path $SourceRoot "input_methods\rime\ime.json"
 $sourceAIConfig = Join-Path $SourceRoot "input_methods\rime\ai_config.json"
+$sourceBertConfig = Join-Path $SourceRoot "input_methods\rime\bert_config.json"
 
-$sourcePaths = @($sourceServer, $sourceRimeDLL, $sourceDataDir, $sourceIconsDir, $sourceIMEJSON, $sourceAIConfig)
+$sourcePaths = @($sourceServer, $sourceRimeDLL, $sourceDataDir, $sourceIconsDir, $sourceIMEJSON, $sourceAIConfig, $sourceBertConfig)
 foreach ($path in $sourcePaths) {
     if (-not (Test-Path -LiteralPath $path)) {
         throw "Required source path not found: $path"
@@ -204,7 +206,8 @@ try {
     Stop-MoqiLauncher -Path $LauncherPath
 
     Sync-GoBackendRuntime -Source $SourceRoot -Destination $InstallRoot
-    Sync-RimeUserAIConfig -SourceConfig $sourceAIConfig -AppDataPath $env:APPDATA
+    Sync-RimeUserConfig -SourceConfig $sourceAIConfig -AppDataPath $env:APPDATA -FileName "ai_config.json"
+    Sync-RimeUserConfig -SourceConfig $sourceBertConfig -AppDataPath $env:APPDATA -FileName "bert_config.json"
 
     Write-FileDetails -Label "Destination server.exe (after)" -Path $destinationServer
     Write-FileDetails -Label "Destination rime.dll (after)" -Path $destinationRimeDLL
