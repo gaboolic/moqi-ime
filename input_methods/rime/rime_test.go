@@ -91,30 +91,31 @@ type testDictEntry struct {
 }
 
 type testBackend struct {
-	session           bool
-	composition       string
-	rawInput          string
-	pageNo            int
-	candidates        []candidateItem
-	commitString      string
-	asciiMode         bool
-	fullShape         bool
-	options           map[string]bool
-	saveOptions       []string
-	schemaSwitches    map[string][]RimeSwitch
-	schemas           []RimeSchema
-	currentSchemaID   string
-	selectSchemaCalls []string
-	pageSizeCalls     []int
-	pageSizeOK        bool
-	redeployCalls     int
-	redeploySharedDir string
-	redeployUserDir   string
-	redeployOK        bool
-	syncCalls         int
-	syncOK            bool
-	setOptionCalls    int
-	getOptionCalls    int
+	session                   bool
+	composition               string
+	rawInput                  string
+	pageNo                    int
+	candidates                []candidateItem
+	commitString              string
+	asciiMode                 bool
+	fullShape                 bool
+	options                   map[string]bool
+	saveOptions               []string
+	schemaSwitches            map[string][]RimeSwitch
+	schemas                   []RimeSchema
+	currentSchemaID           string
+	selectSchemaCalls         []string
+	pageSizeCalls             []int
+	pageSizeOK                bool
+	redeployCalls             int
+	redeploySharedDir         string
+	redeployUserDir           string
+	redeployOK                bool
+	syncCalls                 int
+	syncOK                    bool
+	setOptionCalls            int
+	getOptionCalls            int
+	bertCandidatesForCodeFunc func(code string, limit int) []candidateItem
 }
 
 func newTestBackend() *testBackend {
@@ -411,6 +412,30 @@ func (b *testBackend) refreshCandidates() {
 	b.candidates = results
 }
 
+func (b *testBackend) bertCandidatesForCode(code string, limit int) []candidateItem {
+	if b.bertCandidatesForCodeFunc != nil {
+		return b.bertCandidatesForCodeFunc(code, limit)
+	}
+	code = strings.TrimSpace(strings.ToLower(strings.ReplaceAll(code, "'", "")))
+	if code == "" || limit <= 0 {
+		return nil
+	}
+	for _, entry := range testDictionary() {
+		if entry.code != code {
+			continue
+		}
+		candidates := make([]candidateItem, 0, min(limit, len(entry.words)))
+		for _, word := range entry.words {
+			candidates = append(candidates, word)
+			if len(candidates) >= limit {
+				break
+			}
+		}
+		return candidates
+	}
+	return nil
+}
+
 func testDictionary() []testDictEntry {
 	return []testDictEntry{
 		{code: "ni", words: []candidateItem{{Text: "你"}, {Text: "呢"}, {Text: "泥"}, {Text: "尼"}, {Text: "拟"}}},
@@ -418,6 +443,12 @@ func testDictionary() []testDictEntry {
 		{code: "nimen", words: []candidateItem{{Text: "你们"}}},
 		{code: "zhong", words: []candidateItem{{Text: "中"}, {Text: "种"}, {Text: "重"}}},
 		{code: "zhongwen", words: []candidateItem{{Text: "中文"}}},
+		{code: "ta", words: []candidateItem{{Text: "她"}, {Text: "他"}}},
+		{code: "zhi", words: []candidateItem{{Text: "只"}, {Text: "之"}}},
+		{code: "shi", words: []candidateItem{{Text: "是"}, {Text: "时"}}},
+		{code: "wo", words: []candidateItem{{Text: "我"}}},
+		{code: "de", words: []candidateItem{{Text: "的"}}},
+		{code: "meimei", words: []candidateItem{{Text: "妹妹"}}},
 	}
 }
 

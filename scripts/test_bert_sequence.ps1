@@ -1,4 +1,6 @@
-param()
+param(
+    [string]$Sequence = "gegeguoujijay"
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -21,30 +23,26 @@ function Set-DefaultClang64 {
     $defaultClang64Bin = "C:\msys64\clang64\bin"
     $defaultClang = Join-Path $defaultClang64Bin "clang.exe"
     if (-not (Test-Path -LiteralPath $defaultClang)) {
-        Write-Host ("[WARN] Default clang64 compiler not found: {0}" -f $defaultClang)
-        return
+        throw "Default clang64 compiler not found: $defaultClang"
     }
 
-    $pathEntries = @()
-    if (-not [string]::IsNullOrWhiteSpace($env:PATH)) {
-        $pathEntries = $env:PATH.Split([System.IO.Path]::PathSeparator)
-    }
-    $alreadyPresent = $false
-    foreach ($entry in $pathEntries) {
-        if ([string]::Equals($entry.TrimEnd('\'), $defaultClang64Bin.TrimEnd('\'), [System.StringComparison]::OrdinalIgnoreCase)) {
-            $alreadyPresent = $true
-            break
-        }
-    }
-    if (-not $alreadyPresent) {
-        $env:PATH = $defaultClang64Bin + [System.IO.Path]::PathSeparator + $env:PATH
-    }
+    $env:PATH = $defaultClang64Bin + [System.IO.Path]::PathSeparator + $env:PATH
     $env:CC = $defaultClang
     $env:MOQI_C_COMPILER = $defaultClang
     Write-Host ("[INFO] Defaulted to clang64 compiler: {0}" -f $defaultClang)
 }
 
-Write-Host "moqi-ime go"
 Set-DefaultClang64
-& (Join-Path $PSScriptRoot "build.ps1")
-& (Join-Path $PSScriptRoot "deploy-server.ps1")
+
+$env:CGO_ENABLED = "1"
+$env:MOQI_REAL_BERT_SEQUENCE = "1"
+$env:MOQI_REAL_BERT_SEQUENCE_INPUT = $Sequence
+$env:MOQI_REAL_BERT_USER_DIR = "C:\Users\gbl\AppData\Roaming\Moqi\Rime"
+
+Push-Location (Join-Path $PSScriptRoot "..")
+try {
+    go test ./input_methods/rime -run '^TestRealBertSequence_gegeguoujijay$' -count=1 -v
+}
+finally {
+    Pop-Location
+}

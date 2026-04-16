@@ -11,10 +11,21 @@ import (
 )
 
 type bertRerankRequest struct {
+	PreviousCommit         string
+	Composition            string
+	RawInput               string
+	CandidateIndexes       []int
+	OriginalCandidateCount int
+	PromoteTopOnly         bool
+	Candidates             []candidateItem
+}
+
+type bertAsyncSnapshot struct {
+	State          rimeState
 	PreviousCommit string
-	Composition    string
 	RawInput       string
-	Candidates     []candidateItem
+	SchemaID       string
+	Key            string
 }
 
 type bertScore struct {
@@ -42,9 +53,14 @@ type bertReranker interface {
 
 func cloneBertRequest(input bertRerankRequest) bertRerankRequest {
 	cloned := bertRerankRequest{
-		PreviousCommit: strings.TrimSpace(input.PreviousCommit),
-		Composition:    strings.TrimSpace(input.Composition),
-		RawInput:       strings.TrimSpace(input.RawInput),
+		PreviousCommit:         strings.TrimSpace(input.PreviousCommit),
+		Composition:            strings.TrimSpace(input.Composition),
+		RawInput:               strings.TrimSpace(input.RawInput),
+		OriginalCandidateCount: input.OriginalCandidateCount,
+		PromoteTopOnly:         input.PromoteTopOnly,
+	}
+	if len(input.CandidateIndexes) > 0 {
+		cloned.CandidateIndexes = append([]int(nil), input.CandidateIndexes...)
 	}
 	if len(input.Candidates) > 0 {
 		cloned.Candidates = append([]candidateItem(nil), input.Candidates...)
@@ -67,17 +83,30 @@ func normalizeBertRerankRequest(input bertRerankRequest, maxCandidates int) bert
 	input = cloneBertRequest(input)
 	if maxCandidates > 0 && len(input.Candidates) > maxCandidates {
 		input.Candidates = append([]candidateItem(nil), input.Candidates[:maxCandidates]...)
+		if len(input.CandidateIndexes) > maxCandidates {
+			input.CandidateIndexes = append([]int(nil), input.CandidateIndexes[:maxCandidates]...)
+		}
 	}
 	filtered := make([]candidateItem, 0, len(input.Candidates))
-	for _, candidate := range input.Candidates {
+	filteredIndexes := make([]int, 0, len(input.Candidates))
+	for i, candidate := range input.Candidates {
 		candidate.Text = strings.TrimSpace(candidate.Text)
 		candidate.Comment = strings.TrimSpace(candidate.Comment)
+		index := i
+		if i < len(input.CandidateIndexes) {
+			index = input.CandidateIndexes[i]
+		}
 		if candidate.Text == "" {
 			continue
 		}
 		filtered = append(filtered, candidate)
+		filteredIndexes = append(filteredIndexes, index)
 	}
 	input.Candidates = filtered
+	input.CandidateIndexes = filteredIndexes
+	if input.OriginalCandidateCount <= 0 {
+		input.OriginalCandidateCount = len(input.Candidates)
+	}
 	return input
 }
 
@@ -85,7 +114,11 @@ func buildBertRequestKey(input bertRerankRequest) string {
 	h := sha1.New()
 	fmt.Fprintf(h, "prev=%s\x1fcomp=%s\x1fraw=%s", input.PreviousCommit, input.Composition, input.RawInput)
 	for i, candidate := range input.Candidates {
-		fmt.Fprintf(h, "\x1ec%d=%s\x1f%s", i, candidate.Text, candidate.Comment)
+		index := i
+		if i < len(input.CandidateIndexes) {
+			index = input.CandidateIndexes[i]
+		}
+		fmt.Fprintf(h, "\x1ec%d=%d\x1f%s\x1f%s", i, index, candidate.Text, candidate.Comment)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -169,16 +202,152 @@ func sortBertScores(scores []bertScore, candidateCount int) bertRerankResult {
 	}
 }
 
+func promoteSingleBertCandidate(scores []bertScore, candidateCount int, minLead float64) bertRerankResult {
+	if candidateCount <= 0 {
+		return bertRerankResult{}
+	}
+	filtered := make([]bertScore, 0, len(scores))
+	for _, score := range scores {
+		if score.Index < 0 || score.Index >= candidateCount {
+			continue
+		}
+		filtered = append(filtered, score)
+	}
+	if len(filtered) < 2 {
+		return identityBertRerankResult(candidateCount)
+	}
+	sort.SliceStable(filtered, func(i, j int) bool {
+		if filtered[i].Score == filtered[j].Score {
+			return filtered[i].Index < filtered[j].Index
+		}
+		return filtered[i].Score > filtered[j].Score
+	})
+	best := filtered[0]
+	next := filtered[1]
+	if best.Index <= 0 || best.Score-next.Score < minLead {
+		return identityBertRerankResult(candidateCount)
+	}
+	order := make([]int, 0, candidateCount)
+	order = append(order, best.Index)
+	for i := 0; i < candidateCount; i++ {
+		if i != best.Index {
+			order = append(order, i)
+		}
+	}
+	return bertRerankResult{
+		Order:  order,
+		Scores: filtered,
+	}
+}
+
 func shortBertFailureResult(candidateCount int) bertRerankResult {
 	return identityBertRerankResult(candidateCount)
 }
 
-func (ime *IME) buildBertRequest(state rimeState) bertRerankRequest {
+func cloneRimeState(state rimeState) rimeState {
+	cloned := state
+	if len(state.Candidates) > 0 {
+		cloned.Candidates = append([]candidateItem(nil), state.Candidates...)
+	}
+	return cloned
+}
+
+func countWholeSentenceCandidates(candidates []candidateItem, rawInput string) int {
+	count := 0
+	for _, candidate := range candidates {
+		if isWholeSentenceCandidate(strings.TrimSpace(candidate.Text), rawInput) {
+			count++
+		}
+	}
+	return count
+}
+
+func buildBertStateKey(snapshot bertAsyncSnapshot) string {
+	h := sha1.New()
+	fmt.Fprintf(h, "schema=%s\x1fprev=%s\x1fcomp=%s\x1fraw=%s",
+		snapshot.SchemaID,
+		snapshot.PreviousCommit,
+		strings.TrimSpace(snapshot.State.Composition),
+		snapshot.RawInput,
+	)
+	for i, candidate := range snapshot.State.Candidates {
+		fmt.Fprintf(h, "\x1ec%d=%s\x1f%s", i, strings.TrimSpace(candidate.Text), strings.TrimSpace(candidate.Comment))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func (ime *IME) bertSnapshotForState(state rimeState) (bertAsyncSnapshot, bool) {
+	if !ime.shouldBertRerankState(state) {
+		return bertAsyncSnapshot{}, false
+	}
+	rawInput := normalizeBertRawInput(ime.customPhraseMatchInput(state))
+	if !isSuspectedSentenceInput(rawInput) {
+		return bertAsyncSnapshot{}, false
+	}
+	if countWholeSentenceCandidates(state.Candidates, rawInput) < 2 {
+		return bertAsyncSnapshot{}, false
+	}
+	snapshot := bertAsyncSnapshot{
+		State:          cloneRimeState(state),
+		PreviousCommit: strings.TrimSpace(ime.aiPreviousCommit),
+		RawInput:       rawInput,
+	}
+	if ime.backend != nil {
+		snapshot.SchemaID = strings.TrimSpace(ime.backend.CurrentSchemaID())
+	}
+	snapshot.Key = buildBertStateKey(snapshot)
+	return snapshot, snapshot.Key != ""
+}
+
+func (ime *IME) generatedSentenceCandidates(snapshot bertAsyncSnapshot) map[string]struct{} {
+	if ime.bertSentenceCache == nil {
+		ime.bertSentenceCache = newBertSentenceCandidateCache(defaultBertSentenceCacheTTL)
+	}
+	cacheKey := buildBertSentenceCacheKey(snapshot.SchemaID, snapshot.RawInput)
+	if cacheKey == "" {
+		return nil
+	}
+	sentences := ime.bertSentenceCache.GetOrCompute(cacheKey, func() ([]string, bool) {
+		if source := bertSchemaCandidateSourceFromBackend(ime.backend); source != nil {
+			return generateSentenceCandidatesWithSchemaSource(source, snapshot.SchemaID, snapshot.RawInput)
+		}
+		return generateSentenceCandidatesFromSource(bertCandidateSourceFromBackend(ime.backend), snapshot.RawInput), true
+	})
+	return sentenceSetFromList(sentences)
+}
+
+func (ime *IME) buildBertRequest(snapshot bertAsyncSnapshot) bertRerankRequest {
+	if !isSuspectedSentenceInput(snapshot.RawInput) {
+		return bertRerankRequest{}
+	}
+	generated := ime.generatedSentenceCandidates(snapshot)
+	if len(generated) == 0 {
+		return bertRerankRequest{}
+	}
+	indexes := make([]int, 0, len(snapshot.State.Candidates))
+	candidates := make([]candidateItem, 0, len(snapshot.State.Candidates))
+	for i, candidate := range snapshot.State.Candidates {
+		text := strings.TrimSpace(candidate.Text)
+		if !isWholeSentenceCandidate(text, snapshot.RawInput) {
+			continue
+		}
+		if _, ok := generated[text]; !ok {
+			continue
+		}
+		indexes = append(indexes, i)
+		candidates = append(candidates, candidate)
+	}
+	if len(candidates) < 2 {
+		return bertRerankRequest{}
+	}
 	return normalizeBertRerankRequest(bertRerankRequest{
-		PreviousCommit: ime.aiPreviousCommit,
-		Composition:    state.Composition,
-		RawInput:       ime.customPhraseMatchInput(state),
-		Candidates:     state.Candidates,
+		PreviousCommit:         snapshot.PreviousCommit,
+		Composition:            snapshot.State.Composition,
+		RawInput:               snapshot.RawInput,
+		CandidateIndexes:       indexes,
+		OriginalCandidateCount: len(snapshot.State.Candidates),
+		PromoteTopOnly:         true,
+		Candidates:             candidates,
 	}, ime.bertMaxCandidates())
 }
 

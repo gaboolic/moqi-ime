@@ -154,9 +154,9 @@ func (r *bertOnnxReranker) Rerank(ctx context.Context, input bertRerankRequest) 
 	}
 	input = normalizeBertRerankRequest(input, r.maxCandidates)
 	if len(input.Candidates) <= 1 {
-		return identityBertRerankResult(len(input.Candidates)), nil
+		return identityBertRerankResult(input.OriginalCandidateCount), nil
 	}
-	contextText := truncateRunes(strings.TrimSpace(input.PreviousCommit), r.cfg.LeftContextRunes)
+	contextText := truncateRunes(buildBertContextText(input), r.cfg.LeftContextRunes)
 	scores := make([]bertScore, 0, len(input.Candidates))
 	for i, candidate := range input.Candidates {
 		select {
@@ -169,12 +169,35 @@ func (r *bertOnnxReranker) Rerank(ctx context.Context, input bertRerankRequest) 
 			return bertRerankResult{}, fmt.Errorf("score candidate %q: %w", candidate.Text, err)
 		}
 		scores = append(scores, bertScore{
-			Index: i,
+			Index: candidateOriginalIndex(input, i),
 			Text:  candidate.Text,
 			Score: score,
 		})
 	}
-	return sortBertScores(scores, len(input.Candidates)), nil
+	if input.PromoteTopOnly {
+		return promoteSingleBertCandidate(scores, input.OriginalCandidateCount, bertMinScoreLead), nil
+	}
+	return sortBertScores(scores, input.OriginalCandidateCount), nil
+}
+
+func buildBertContextText(input bertRerankRequest) string {
+	parts := make([]string, 0, 3)
+	if text := strings.TrimSpace(input.PreviousCommit); text != "" {
+		parts = append(parts, text)
+	}
+	if raw := strings.TrimSpace(input.RawInput); raw != "" {
+		parts = append(parts, raw)
+	} else if composition := strings.TrimSpace(input.Composition); composition != "" {
+		parts = append(parts, composition)
+	}
+	return strings.Join(parts, " ")
+}
+
+func candidateOriginalIndex(input bertRerankRequest, candidateIndex int) int {
+	if candidateIndex >= 0 && candidateIndex < len(input.CandidateIndexes) {
+		return input.CandidateIndexes[candidateIndex]
+	}
+	return candidateIndex
 }
 
 func (r *bertOnnxReranker) scoreCandidate(contextText, candidateText string) (float64, error) {

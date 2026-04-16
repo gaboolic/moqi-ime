@@ -144,6 +144,13 @@ func TestAIHotkeyShowsGeneratedCandidates(t *testing.T) {
 	ime := newTestIMEWithBackend(backend)
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	})
 	ime.SetAIReviewGenerator(func(input aiGenerateRequest) ([]string, error) {
 		if input.Composition != "咖啡机" {
 			t.Fatalf("unexpected AI composition: %q", input.Composition)
@@ -151,8 +158,8 @@ func TestAIHotkeyShowsGeneratedCandidates(t *testing.T) {
 		if len(input.Candidates) != 1 || input.Candidates[0] != "咖啡机" {
 			t.Fatalf("unexpected AI candidates: %#v", input.Candidates)
 		}
-		if !strings.Contains(input.Prompt, "{{candidate_1}}") {
-			t.Fatalf("expected configured prompt template, got %q", input.Prompt)
+		if !strings.Contains(input.Prompt, "{{composition}}") {
+			t.Fatalf("expected default prompt template, got %q", input.Prompt)
 		}
 		started <- struct{}{}
 		<-release
@@ -174,7 +181,11 @@ func TestAIHotkeyShowsGeneratedCandidates(t *testing.T) {
 	if backend.processKeyN != 0 {
 		t.Fatalf("expected AI hotkey to bypass backend.ProcessKey, got %d calls", backend.processKeyN)
 	}
-	<-started
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for AI generator to start")
+	}
 
 	keyResp := ime.HandleRequest(&imecore.Request{
 		Method:    "onKeyDown",
@@ -216,7 +227,11 @@ func TestAIHotkeyShowsGeneratedCandidates(t *testing.T) {
 		t.Fatalf("expected pending AI key-up to preserve backend candidates, got %#v", keyUpResp)
 	}
 
-	close(release)
+	select {
+	case <-release:
+	default:
+		close(release)
+	}
 	waitForAIAsyncCompletion(t, ime)
 
 	showResp := imecore.NewResponse(5, true)

@@ -44,42 +44,44 @@ const (
 	altMask     = 1 << 3
 	releaseMask = 1 << 30
 
-	vkBack     = 0x08
-	vkTab      = 0x09
-	vkClear    = 0x0C
-	vkReturn   = 0x0D
-	vkShift    = 0x10
-	vkControl  = 0x11
-	vkMenu     = 0x12
-	vkPause    = 0x13
-	vkCapital  = 0x14
-	vkEscape   = 0x1B
-	vkSpace    = 0x20
-	vkPrior    = 0x21
-	vkNext     = 0x22
-	vkEnd      = 0x23
-	vkHome     = 0x24
-	vkLeft     = 0x25
-	vkUp       = 0x26
-	vkRight    = 0x27
-	vkDown     = 0x28
-	vkSelect   = 0x29
-	vkPrint    = 0x2A
-	vkExecute  = 0x2B
-	vkInsert   = 0x2D
-	vkDelete   = 0x2E
-	vkHelp     = 0x2F
-	vkLWin     = 0x5B
-	vkRWin     = 0x5C
-	vkNumLock  = 0x90
-	vkScroll   = 0x91
-	vkLShift   = 0xA0
-	vkRShift   = 0xA1
-	vkLControl = 0xA2
-	vkRControl = 0xA3
-	vkLMenu    = 0xA4
-	vkRMenu    = 0xA5
-	vkOem1     = 0xBA
+	vkBack      = 0x08
+	vkTab       = 0x09
+	vkClear     = 0x0C
+	vkReturn    = 0x0D
+	vkShift     = 0x10
+	vkControl   = 0x11
+	vkMenu      = 0x12
+	vkPause     = 0x13
+	vkCapital   = 0x14
+	vkEscape    = 0x1B
+	vkSpace     = 0x20
+	vkPrior     = 0x21
+	vkNext      = 0x22
+	vkEnd       = 0x23
+	vkHome      = 0x24
+	vkLeft      = 0x25
+	vkUp        = 0x26
+	vkRight     = 0x27
+	vkDown      = 0x28
+	vkSelect    = 0x29
+	vkPrint     = 0x2A
+	vkExecute   = 0x2B
+	vkInsert    = 0x2D
+	vkDelete    = 0x2E
+	vkHelp      = 0x2F
+	vkLWin      = 0x5B
+	vkRWin      = 0x5C
+	vkNumLock   = 0x90
+	vkScroll    = 0x91
+	vkLShift    = 0xA0
+	vkRShift    = 0xA1
+	vkLControl  = 0xA2
+	vkRControl  = 0xA3
+	vkLMenu     = 0xA4
+	vkRMenu     = 0xA5
+	vkNumPad0   = 0x60
+	vkNumPad9   = 0x69
+	vkOem1      = 0xBA
 	vkOemPeriod = 0xBE
 )
 
@@ -137,6 +139,12 @@ func translateKeyCode(req *imecore.Request) int {
 
 	if mapped, ok := vkMaps[keyCode]; ok {
 		return mapped
+	}
+	if keyCode >= '0' && keyCode <= '9' {
+		return keyCode
+	}
+	if keyCode >= vkNumPad0 && keyCode <= vkNumPad9 {
+		return int('0') + (keyCode - vkNumPad0)
 	}
 	if isPrintableChar(req) {
 		return req.CharCode

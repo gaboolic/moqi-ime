@@ -17,10 +17,11 @@ func (ime *IME) currentBertOverlay() (rimeState, []int, bool) {
 	if len(ime.visibleCustomPhraseCandidatesForState(state)) > 0 {
 		return rimeState{}, nil, false
 	}
-	request, key, ok := ime.bertRequestForState(state)
+	snapshot, ok := ime.bertSnapshotForState(state)
 	if !ok {
 		return rimeState{}, nil, false
 	}
+	key := snapshot.Key
 	if ime.bertCache == nil {
 		return rimeState{}, nil, false
 	}
@@ -28,7 +29,7 @@ func (ime *IME) currentBertOverlay() (rimeState, []int, bool) {
 	if !ok || len(cached.Order) == 0 {
 		return rimeState{}, nil, false
 	}
-	identity := identityBertRerankResult(len(request.Candidates)).Order
+	identity := identityBertRerankResult(len(state.Candidates)).Order
 	if sameIntSlice(cached.Order, identity) {
 		return rimeState{}, nil, false
 	}

@@ -4,6 +4,7 @@ package rime
 
 import (
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,6 +52,32 @@ func (s *nativeRuntimeState) tryBeginOperation() bool {
 
 func (s *nativeRuntimeState) endOperation() {
 	s.opMu.RUnlock()
+}
+
+func (s *nativeRuntimeState) tryBeginExclusiveOperation() bool {
+	s.mu.Lock()
+	redeploying := s.redeploying
+	s.mu.Unlock()
+	if redeploying {
+		return false
+	}
+
+	if !s.opMu.TryLock() {
+		return false
+	}
+
+	s.mu.Lock()
+	redeploying = s.redeploying
+	s.mu.Unlock()
+	if redeploying {
+		s.opMu.Unlock()
+		return false
+	}
+	return true
+}
+
+func (s *nativeRuntimeState) endExclusiveOperation() {
+	s.opMu.Unlock()
 }
 
 func (s *nativeRuntimeState) startRedeploy(sharedDir, userDir string) bool {
@@ -249,6 +276,70 @@ func (b *nativeBackend) State() rimeState {
 	state.AsciiMode = b.GetOption("ascii_mode")
 	state.FullShape = b.GetOption("full_shape")
 	return state
+}
+
+func (b *nativeBackend) bertCandidatesForCode(code string, limit int) []candidateItem {
+	code = strings.TrimSpace(strings.ToLower(code))
+	if code == "" || limit <= 0 {
+		return nil
+	}
+	schemaID := ""
+	if rimeRuntime.tryBeginOperation() {
+		if b.ensureSessionLocked() {
+			schemaID = GetCurrentSchema(b.sessionID)
+		}
+		rimeRuntime.endOperation()
+	}
+	candidates, _ := b.bertCandidatesForCodeWithSchema(schemaID, code, limit)
+	return candidates
+}
+
+func (b *nativeBackend) bertCandidatesForCodeWithSchema(schemaID, code string, limit int) ([]candidateItem, bool) {
+	code = strings.TrimSpace(strings.ToLower(code))
+	if code == "" || limit <= 0 {
+		return nil, true
+	}
+	if !rimeRuntime.tryBeginExclusiveOperation() {
+		debugLogf("skip BERT sentence scan because native runtime is busy schema=%q code=%q", schemaID, code)
+		return nil, false
+	}
+	defer rimeRuntime.endExclusiveOperation()
+
+	sessionID, ok := StartSession()
+	if !ok || sessionID == 0 {
+		return nil, true
+	}
+	defer EndSession(sessionID)
+
+	if schemaID != "" {
+		_ = SelectSchema(sessionID, schemaID)
+	}
+	SetOption(sessionID, "ascii_mode", false)
+
+	for _, key := range code {
+		if !ProcessKey(sessionID, int(key), 0) {
+			return nil, true
+		}
+	}
+	menu, ok := GetMenu(sessionID)
+	if !ok || len(menu.Candidates) == 0 {
+		return nil, true
+	}
+	candidates := make([]candidateItem, 0, min(limit, len(menu.Candidates)))
+	for _, candidate := range menu.Candidates {
+		text := strings.TrimSpace(candidate.Text)
+		if text == "" {
+			continue
+		}
+		candidates = append(candidates, candidateItem{
+			Text:    text,
+			Comment: strings.TrimSpace(candidate.Comment),
+		})
+		if len(candidates) >= limit {
+			break
+		}
+	}
+	return candidates, true
 }
 
 func (b *nativeBackend) SetOption(name string, value bool) {

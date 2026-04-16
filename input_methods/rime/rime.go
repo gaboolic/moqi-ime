@@ -187,6 +187,7 @@ type IME struct {
 	bertConfig                   *bertRuntimeConfig
 	bertReranker                 bertReranker
 	bertCache                    *bertRerankCache
+	bertSentenceCache            *bertSentenceCandidateCache
 	bertResultCh                 chan bertAsyncResult
 	bertCursor                   int
 	bertConsumeKeyUpCode         int
@@ -259,10 +260,12 @@ func New(client *imecore.Client) imecore.TextService {
 		aiResultCh:        make(chan aiAsyncResult, 4),
 		bertConfig:        bertCfg,
 		bertCache:         newBertRerankCache(defaultBertCacheTTL),
+		bertSentenceCache: newBertSentenceCandidateCache(defaultBertSentenceCacheTTL),
 		bertResultCh:      make(chan bertAsyncResult, 4),
 	}
 	if bertCfg != nil && bertCfg.CacheTTL > 0 {
 		ime.bertCache = newBertRerankCache(bertCfg.CacheTTL)
+		ime.bertSentenceCache = newBertSentenceCandidateCache(bertCfg.CacheTTL)
 	}
 	ime.loadAppearancePrefs()
 	ime.syncBertRuntimeWithPreference()
@@ -289,8 +292,12 @@ func (ime *IME) SetBertReranker(reranker bertReranker, cfg *bertRuntimeConfig) {
 	if ime.bertCache == nil {
 		ime.bertCache = newBertRerankCache(defaultBertCacheTTL)
 	}
+	if ime.bertSentenceCache == nil {
+		ime.bertSentenceCache = newBertSentenceCandidateCache(defaultBertSentenceCacheTTL)
+	}
 	if cfg != nil && cfg.CacheTTL > 0 {
 		ime.bertCache = newBertRerankCache(cfg.CacheTTL)
+		ime.bertSentenceCache = newBertSentenceCandidateCache(cfg.CacheTTL)
 	}
 	ime.resetBertState()
 }
@@ -1316,26 +1323,16 @@ func (ime *IME) shouldBertRerankState(state rimeState) bool {
 	return len(state.Candidates) > 1
 }
 
-func (ime *IME) bertRequestForState(state rimeState) (bertRerankRequest, string, bool) {
-	if !ime.shouldBertRerankState(state) {
-		return bertRerankRequest{}, "", false
-	}
-	request := ime.buildBertRequest(state)
-	if len(request.Candidates) <= 1 {
-		return bertRerankRequest{}, "", false
-	}
-	return request, buildBertRequestKey(request), true
-}
-
 func (ime *IME) maybeApplyBertRerank(state rimeState) rimeState {
-	request, key, ok := ime.bertRequestForState(state)
+	snapshot, ok := ime.bertSnapshotForState(state)
 	if !ok {
 		return state
 	}
+	key := snapshot.Key
 	if ime.bertCache != nil {
 		if cached, ok := ime.bertCache.Get(key); ok {
 			state.Candidates = reorderCandidateItems(state.Candidates, cached)
-			if len(cached.Order) > 0 && !sameIntSlice(cached.Order, identityBertRerankResult(len(request.Candidates)).Order) {
+			if len(cached.Order) > 0 && !sameIntSlice(cached.Order, identityBertRerankResult(len(state.Candidates)).Order) {
 				if ime.bertCursor < 0 {
 					ime.bertCursor = 0
 				}
@@ -1349,12 +1346,12 @@ func (ime *IME) maybeApplyBertRerank(state rimeState) rimeState {
 			return state
 		}
 	}
-	ime.triggerBertRerank(request, key)
+	ime.triggerBertRerank(snapshot)
 	return state
 }
 
 func (ime *IME) bertVisibleOrderForState(state rimeState) []int {
-	request, key, ok := ime.bertRequestForState(state)
+	snapshot, ok := ime.bertSnapshotForState(state)
 	if !ok {
 		order := make([]int, len(state.Candidates))
 		for i := range order {
@@ -1362,39 +1359,54 @@ func (ime *IME) bertVisibleOrderForState(state rimeState) []int {
 		}
 		return order
 	}
+	key := snapshot.Key
 	if ime.bertCache != nil {
 		if cached, ok := ime.bertCache.Get(key); ok {
 			return append([]int(nil), cached.Order...)
 		}
 	}
-	return identityBertRerankResult(len(request.Candidates)).Order
+	return identityBertRerankResult(len(state.Candidates)).Order
 }
 
-func (ime *IME) triggerBertRerank(request bertRerankRequest, key string) bool {
-	if ime.bertReranker == nil || key == "" {
+func (ime *IME) triggerBertRerank(snapshot bertAsyncSnapshot) bool {
+	if ime.bertReranker == nil || snapshot.Key == "" {
 		return false
 	}
-	if ime.bertPending && ime.bertPendingKey == key {
+	if ime.bertPending && ime.bertPendingKey == snapshot.Key {
 		return false
 	}
 	ime.bertRequestSeq++
 	requestSeq := ime.bertRequestSeq
 	ime.bertPending = true
-	ime.bertPendingKey = key
+	ime.bertPendingKey = snapshot.Key
 	resultCh := ime.ensureBertResultCh()
 	sender := ime.asyncResponseSender
 	reranker := ime.bertReranker
-	candidateCount := len(request.Candidates)
+	candidateCount := len(snapshot.State.Candidates)
 	go func() {
+		if bertAsyncDebounceDelay > 0 {
+			time.Sleep(time.Duration(bertAsyncDebounceDelay) * time.Millisecond)
+		}
+		ime.mu.Lock()
+		isLatest := requestSeq == ime.bertRequestSeq && snapshot.Key == ime.bertPendingKey
+		ime.mu.Unlock()
+		if !isLatest {
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), defaultBertTimeout())
 		defer cancel()
-		result, err := reranker.Rerank(ctx, request)
-		if err != nil {
-			result = shortBertFailureResult(candidateCount)
+		request := ime.buildBertRequest(snapshot)
+		result := identityBertRerankResult(candidateCount)
+		var err error
+		if len(request.Candidates) > 1 {
+			result, err = reranker.Rerank(ctx, request)
+			if err != nil {
+				result = shortBertFailureResult(candidateCount)
+			}
 		}
 		asyncResult := bertAsyncResult{
 			RequestSeq: requestSeq,
-			Key:        key,
+			Key:        snapshot.Key,
 			Result:     result,
 			Err:        err,
 		}
@@ -1966,20 +1978,24 @@ func (ime *IME) consumeBertAsyncResult() {
 }
 
 func (ime *IME) applyBertAsyncResult(result bertAsyncResult) bool {
-	if result.RequestSeq != ime.bertRequestSeq || result.Key != ime.bertPendingKey {
-		return false
-	}
-	ime.bertPending = false
-	ime.bertPendingKey = ""
 	if ime.bertCache == nil {
 		ime.bertCache = newBertRerankCache(defaultBertCacheTTL)
 	}
 	if result.Err != nil {
-		log.Printf("BERT 候选重排失败: %v", result.Err)
 		ime.bertCache.PutWithTTL(result.Key, result.Result, defaultBertFailureCacheTTL)
+	} else {
+		ime.bertCache.Put(result.Key, result.Result)
+	}
+	isCurrent := result.RequestSeq == ime.bertRequestSeq && result.Key == ime.bertPendingKey
+	if !isCurrent {
 		return false
 	}
-	ime.bertCache.Put(result.Key, result.Result)
+	ime.bertPending = false
+	ime.bertPendingKey = ""
+	if result.Err != nil {
+		log.Printf("BERT 候选重排失败: %v", result.Err)
+		return false
+	}
 	return true
 }
 

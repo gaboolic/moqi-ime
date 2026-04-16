@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -255,9 +256,9 @@ func TestBuildAIUserPromptAppendsIMContextWithoutPlaceholders(t *testing.T) {
 }
 
 func TestGenerateReviewCandidatesWithRealAPI(t *testing.T) {
-	// if os.Getenv("MOQI_AI_REAL_TEST") != "1" {
-	// 	t.Skip("set MOQI_AI_REAL_TEST=1 to run real API test")
-	// }
+	if os.Getenv("MOQI_AI_REAL_TEST") != "1" {
+		t.Skip("set MOQI_AI_REAL_TEST=1 to run real API test")
+	}
 
 	client := newAIClientFromEnv()
 	if client == nil {
