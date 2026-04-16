@@ -1671,6 +1671,16 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 	resp.SelStart = state.SelStart
 	resp.SelEnd = state.SelEnd
 	customPhraseCandidates := ime.visibleCustomPhraseCandidatesForState(state)
+	if _, overlay, ok := ime.currentSuperAbbrevOverlay(); ok {
+		if len(customPhraseCandidates) > 0 {
+			customPhraseCandidates = applySuperAbbrevOverlayToCandidates(customPhraseCandidates, overlay)
+		} else {
+			state = applySuperAbbrevOverlay(state, overlay)
+		}
+	}
+	if len(customPhraseCandidates) > 0 && len(state.Candidates) > 0 {
+		state.Candidates = filterDuplicateCandidatesByText(state.Candidates, customPhraseCandidates)
+	}
 	remainingCandidateCount := ime.candidateCount() - len(customPhraseCandidates)
 	if remainingCandidateCount < 0 {
 		customPhraseCandidates = customPhraseCandidates[:ime.candidateCount()]
@@ -1678,13 +1688,6 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 	}
 	if len(state.Candidates) > remainingCandidateCount {
 		state.Candidates = append([]candidateItem(nil), state.Candidates[:remainingCandidateCount]...)
-	}
-	if _, overlay, ok := ime.currentSuperAbbrevOverlay(); ok {
-		if len(customPhraseCandidates) > 0 {
-			customPhraseCandidates = applySuperAbbrevOverlayToCandidates(customPhraseCandidates, overlay)
-		} else {
-			state = applySuperAbbrevOverlay(state, overlay)
-		}
 	}
 	if len(state.Candidates) > 0 || len(customPhraseCandidates) > 0 {
 		resp.CandidateList = append(ime.formatCandidates(customPhraseCandidates), ime.formatCandidates(state.Candidates)...)
@@ -2137,6 +2140,35 @@ func (ime *IME) formatCandidates(candidates []candidateItem) []string {
 		formatted = append(formatted, text)
 	}
 	return formatted
+}
+
+func candidateTextKey(candidate candidateItem) string {
+	return strings.TrimSpace(candidate.Text)
+}
+
+func filterDuplicateCandidatesByText(candidates []candidateItem, existing []candidateItem) []candidateItem {
+	if len(candidates) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(existing))
+	for _, candidate := range existing {
+		key := candidateTextKey(candidate)
+		if key == "" {
+			continue
+		}
+		seen[key] = struct{}{}
+	}
+	filtered := make([]candidateItem, 0, len(candidates))
+	for _, candidate := range candidates {
+		key := candidateTextKey(candidate)
+		if key != "" {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+		}
+		filtered = append(filtered, candidate)
+	}
+	return filtered
 }
 
 func (ime *IME) candidateEntries(candidates []candidateItem) []imecore.CandidateEntry {

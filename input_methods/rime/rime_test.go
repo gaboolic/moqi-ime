@@ -2068,6 +2068,40 @@ func TestFillResponseFromBackendStatePrependsCustomPhraseCandidates(t *testing.T
 	}
 }
 
+func TestFillResponseFromBackendStateDeduplicatesCustomPhraseAgainstBackendCandidates(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\n传\tc\t10\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "c"
+	backend.candidates = []candidateItem{
+		{Text: "传"},
+		{Text: "船"},
+		{Text: "串"},
+	}
+
+	resp := imecore.NewResponse(31, true)
+	ime.fillResponseFromBackendState(resp, false)
+
+	if len(resp.CandidateList) < 3 {
+		t.Fatalf("expected deduplicated custom and backend candidates, got %#v", resp.CandidateList)
+	}
+	if resp.CandidateList[0] != "传" {
+		t.Fatalf("expected custom phrase to stay first, got %#v", resp.CandidateList)
+	}
+	if resp.CandidateList[1] != "船" || resp.CandidateList[2] != "串" {
+		t.Fatalf("expected backend duplicates removed after custom phrase, got %#v", resp.CandidateList)
+	}
+	for i := 1; i < len(resp.CandidateList); i++ {
+		if resp.CandidateList[i] == "传" {
+			t.Fatalf("expected duplicated backend candidate removed, got %#v", resp.CandidateList)
+		}
+	}
+}
+
 func TestFillResponseFromBackendStateMatchesCustomPhraseByRawInput(t *testing.T) {
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
