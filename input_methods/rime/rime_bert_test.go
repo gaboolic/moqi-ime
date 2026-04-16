@@ -40,12 +40,14 @@ func waitForBertAsyncCompletion(t *testing.T, ime *IME) {
 
 func testBertConfig() *bertRuntimeConfig {
 	return &bertRuntimeConfig{
-		Enabled:           true,
-		Provider:          bertProviderCrossEncoder,
-		MaxSequenceLength: 96,
-		MaxCandidates:     5,
-		LeftContextRunes:  48,
-		CacheTTL:          time.Minute,
+		Enabled:               true,
+		Provider:              bertProviderCrossEncoder,
+		MaxSequenceLength:     96,
+		MaxCandidates:         5,
+		LeftContextRunes:      48,
+		CacheTTL:              time.Minute,
+		MinSentenceInputChars: defaultBertMinSentenceInputChars,
+		AsyncDebounceMS:       defaultBertAsyncDebounceDelayMS,
 	}
 }
 
@@ -89,7 +91,7 @@ func TestBertShortInputDoesNotTriggerSentenceRerank(t *testing.T) {
 	}
 }
 
-func TestBertSentenceRequestUsesGeneratedWholeSentenceCandidatesOnly(t *testing.T) {
+func TestBertSentenceRequestUsesWholeSentenceMenuCandidatesOnly(t *testing.T) {
 	ime := newIsolatedTestIME(t)
 	seedSentenceRerankState(ime)
 
@@ -124,6 +126,59 @@ func TestBertSentenceRequestUsesGeneratedWholeSentenceCandidatesOnly(t *testing.
 		}
 	default:
 		t.Fatal("expected BERT sentence rerank request")
+	}
+}
+
+func TestBertSentenceRequestUsesFullMenuCandidatesBeyondVisiblePage(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "tazhishiwodemeimei"
+	backend.rawInput = "tazhishiwodemeimei"
+	backend.candidates = []candidateItem{
+		{Text: "他只是"},
+		{Text: "沃德"},
+		{Text: "妹妹"},
+		{Text: "她只是我的妹妹"},
+		{Text: "他只是我的妹妹"},
+	}
+	ime.style.CandidateCount = 3
+
+	started := make(chan bertRerankRequest, 1)
+	ime.SetBertReranker(&fakeBertReranker{
+		rerank: func(ctx context.Context, input bertRerankRequest) (bertRerankResult, error) {
+			started <- cloneBertRequest(input)
+			return bertRerankResult{Order: []int{4, 0, 1, 2, 3}}, nil
+		},
+	}, testBertConfig())
+	ime.bertEnabled = true
+
+	firstResp := imecore.NewResponse(1, true)
+	ime.fillResponseFromBackendState(firstResp, false)
+	if len(firstResp.CandidateList) != 3 {
+		t.Fatalf("expected only visible candidates before async result, got %#v", firstResp.CandidateList)
+	}
+	if firstResp.CandidateList[0] != "他只是" || firstResp.CandidateList[2] != "妹妹" {
+		t.Fatalf("expected initial visible page before rerank, got %#v", firstResp.CandidateList)
+	}
+
+	waitForBertAsyncCompletion(t, ime)
+
+	select {
+	case input := <-started:
+		if len(input.CandidateIndexes) != 2 || input.CandidateIndexes[0] != 3 || input.CandidateIndexes[1] != 4 {
+			t.Fatalf("expected full-menu sentence candidates from hidden rows, got %#v", input.CandidateIndexes)
+		}
+	default:
+		t.Fatal("expected BERT full-menu rerank request")
+	}
+
+	showResp := imecore.NewResponse(2, true)
+	ime.fillResponseFromCurrentState(showResp)
+	want := []string{"他只是我的妹妹", "他只是", "沃德"}
+	for i, text := range want {
+		if showResp.CandidateList[i] != text {
+			t.Fatalf("expected hidden full-menu sentence promoted into visible page, got %#v", showResp.CandidateList)
+		}
 	}
 }
 
@@ -200,26 +255,15 @@ func TestBertSentenceRerankPreservesCustomPhrasePriority(t *testing.T) {
 	}
 }
 
-func TestBertSentenceGenerationRunsAsynchronously(t *testing.T) {
+func TestBertSentenceRerankIgnoresSentenceScanners(t *testing.T) {
 	ime := newIsolatedTestIME(t)
-	backend := seedSentenceRerankState(ime)
+	seedSentenceRerankState(ime)
 
-	started := make(chan struct{}, 1)
-	release := make(chan struct{})
-	backend.bertCandidatesForCodeFunc = func(code string, limit int) []candidateItem {
-		select {
-		case started <- struct{}{}:
-		default:
-		}
-		<-release
-		return (&testBackend{}).bertCandidatesForCode(code, limit)
-	}
-
-	rerankCalled := make(chan struct{}, 1)
+	rerankCalled := make(chan bertRerankRequest, 1)
 	ime.SetBertReranker(&fakeBertReranker{
 		rerank: func(ctx context.Context, input bertRerankRequest) (bertRerankResult, error) {
-			rerankCalled <- struct{}{}
-			return bertRerankResult{Order: []int{3, 0, 1, 2, 4}}, nil
+			rerankCalled <- cloneBertRequest(input)
+			return identityBertRerankResult(input.OriginalCandidateCount), nil
 		},
 	}, testBertConfig())
 	ime.bertEnabled = true
@@ -233,87 +277,74 @@ func TestBertSentenceGenerationRunsAsynchronously(t *testing.T) {
 	if resp.CandidateList[0] != "他只是" {
 		t.Fatalf("expected original candidates before async work completes, got %#v", resp.CandidateList)
 	}
+	waitForBertAsyncCompletion(t, ime)
+
+	select {
+	case input := <-rerankCalled:
+		if len(input.CandidateIndexes) != 2 || input.CandidateIndexes[0] != 2 || input.CandidateIndexes[1] != 3 {
+			t.Fatalf("expected reranker to score menu-only sentence candidates, got %#v", input.CandidateIndexes)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected reranker to run without sentence generation")
+	}
+}
+
+func TestBertConfigurableMinSentenceInputCharsSkipsShorterInput(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	seedSentenceRerankState(ime)
+
+	called := false
+	cfg := testBertConfig()
+	cfg.MinSentenceInputChars = 30
+	ime.SetBertReranker(&fakeBertReranker{
+		rerank: func(ctx context.Context, input bertRerankRequest) (bertRerankResult, error) {
+			called = true
+			return identityBertRerankResult(input.OriginalCandidateCount), nil
+		},
+	}, cfg)
+	ime.bertEnabled = true
+
+	resp := imecore.NewResponse(1, true)
+	ime.fillResponseFromBackendState(resp, false)
+	if called {
+		t.Fatal("expected configurable min sentence chars to skip rerank")
+	}
+	if ime.bertPending {
+		t.Fatal("expected no async BERT request below configured min chars")
+	}
+}
+
+func TestBertConfigurableDebounceDelaysSentenceRerank(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	seedSentenceRerankState(ime)
+
+	started := make(chan struct{}, 1)
+	cfg := testBertConfig()
+	cfg.AsyncDebounceMS = 220
+	ime.SetBertReranker(&fakeBertReranker{
+		rerank: func(ctx context.Context, input bertRerankRequest) (bertRerankResult, error) {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+			return identityBertRerankResult(input.OriginalCandidateCount), nil
+		},
+	}, cfg)
+	ime.bertEnabled = true
+
+	ime.fillResponseFromBackendState(imecore.NewResponse(1, true), false)
+
+	select {
+	case <-started:
+		t.Fatal("expected debounce to delay sentence rerank")
+	case <-time.After(80 * time.Millisecond):
+	}
 
 	select {
 	case <-started:
 	case <-time.After(time.Second):
-		t.Fatal("expected async sentence generation to start in background")
+		t.Fatal("expected sentence rerank after configured debounce")
 	}
 
-	select {
-	case <-rerankCalled:
-		t.Fatal("expected reranker to wait for sentence generation")
-	default:
-	}
-
-	close(release)
 	waitForBertAsyncCompletion(t, ime)
-
-	select {
-	case <-rerankCalled:
-	case <-time.After(time.Second):
-		t.Fatal("expected reranker to run after sentence generation completes")
-	}
-}
-
-func TestBertSentenceGenerationCacheAvoidsRepeatedScanForSameInput(t *testing.T) {
-	ime := newIsolatedTestIME(t)
-	backend := seedSentenceRerankState(ime)
-
-	scanCalls := 0
-	backend.bertCandidatesForCodeFunc = func(code string, limit int) []candidateItem {
-		scanCalls++
-		return (&testBackend{}).bertCandidatesForCode(code, limit)
-	}
-
-	rerankCalls := 0
-	ime.SetBertReranker(&fakeBertReranker{
-		rerank: func(ctx context.Context, input bertRerankRequest) (bertRerankResult, error) {
-			rerankCalls++
-			return identityBertRerankResult(input.OriginalCandidateCount), nil
-		},
-	}, testBertConfig())
-	ime.bertEnabled = true
-
-	ime.fillResponseFromBackendState(imecore.NewResponse(1, true), false)
-	waitForBertAsyncCompletion(t, ime)
-	firstScanCalls := scanCalls
-	if firstScanCalls == 0 {
-		t.Fatal("expected initial sentence generation scan")
-	}
-
-	ime.aiPreviousCommit = "上一句"
-	ime.fillResponseFromBackendState(imecore.NewResponse(2, true), false)
-	waitForBertAsyncCompletion(t, ime)
-
-	if rerankCalls != 2 {
-		t.Fatalf("expected reranker to run again for a new context, got %d calls", rerankCalls)
-	}
-	if scanCalls != firstScanCalls {
-		t.Fatalf("expected sentence cache to reuse generated paths, scan calls before=%d after=%d", firstScanCalls, scanCalls)
-	}
-}
-
-func TestBertSentenceCacheDoesNotPoisonOnSkippedComputation(t *testing.T) {
-	cache := newBertSentenceCandidateCache(time.Minute)
-	computeCalls := 0
-
-	got := cache.GetOrCompute("raw-key", func() ([]string, bool) {
-		computeCalls++
-		return nil, false
-	})
-	if got != nil {
-		t.Fatalf("expected skipped computation to return nil, got %#v", got)
-	}
-
-	got = cache.GetOrCompute("raw-key", func() ([]string, bool) {
-		computeCalls++
-		return []string{"哥哥国家有"}, true
-	})
-	if len(got) != 1 || got[0] != "哥哥国家有" {
-		t.Fatalf("expected second computation to run and cache result, got %#v", got)
-	}
-	if computeCalls != 2 {
-		t.Fatalf("expected skipped result not cached, got computeCalls=%d", computeCalls)
-	}
 }

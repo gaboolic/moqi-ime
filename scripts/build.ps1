@@ -377,19 +377,17 @@ try {
     Write-Step -Title "Step 6: Prepare packaged Rime shared data"
     Prepare-RimeData -RimeDataDir $RimeDataDir -PackageRimeDataDir $PackageRimeDataDir
 
-    if ($BertRuntimeConfig -and $BertRuntimeConfig.enabled) {
-        if (-not (Test-Path -LiteralPath $BertSourceDir)) {
-            throw "BERT is enabled but source asset directory is missing: `"$BertSourceDir`""
-        }
-        foreach ($requiredAsset in @("onnxruntime.dll")) {
-            $assetPath = Join-Path $BertSourceDir $requiredAsset
-            if (-not (Test-Path -LiteralPath $assetPath)) {
-                throw "BERT is enabled but required asset is missing: `"$assetPath`""
-            }
-        }
-        $packageBertDir = Join-Path $PackageRimeDir "bert"
-        Write-Host ("[INFO] BERT assets packaged in `"{0}`"" -f $packageBertDir)
+    if (-not (Test-Path -LiteralPath $BertSourceDir)) {
+        throw "BERT runtime asset directory is missing: `"$BertSourceDir`""
     }
+    foreach ($requiredAsset in @("onnxruntime.dll")) {
+        $assetPath = Join-Path $BertSourceDir $requiredAsset
+        if (-not (Test-Path -LiteralPath $assetPath)) {
+            throw "Required BERT runtime asset is missing: `"$assetPath`""
+        }
+    }
+    $packageBertDir = Join-Path $PackageRimeDir "bert"
+    Write-Host ("[INFO] BERT runtime assets packaged in `"{0}`" regardless of enabled flag" -f $packageBertDir)
     foreach ($assetName in @("model.onnx", "model.onnx.data", "vocab.txt", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json")) {
         $packagedAsset = Join-Path $PackageRimeDir ("bert\" + $assetName)
         if (Test-Path -LiteralPath $packagedAsset) {
@@ -450,5 +448,5 @@ Write-Host "2. Ensure C:\Program Files (x86)\MoqiIM\backends.json includes moqi-
 Write-Host "3. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\*\ime.json exists."
 Write-Host "4. Re-register both MoqiTextService.dll files after copying."
 Write-Host "5. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\rime contains rime.dll."
-Write-Host "6. If you want BERT reranking, keep input_methods\rime\bert\onnxruntime.dll in the package and place model.onnx, model.onnx.data, and vocab.txt under C:\Program Files (x86)\MoqiIM\bert."
+Write-Host "6. input_methods\rime\bert\onnxruntime.dll is always packaged; place model.onnx, model.onnx.data, and vocab.txt under C:\Program Files (x86)\MoqiIM\bert."
 Write-Host "7. Start or restart MoqiLauncher.exe after install."

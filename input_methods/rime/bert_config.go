@@ -17,35 +17,39 @@ const (
 )
 
 type bertFileConfig struct {
-	Enabled            bool     `json:"enabled"`
-	Provider           string   `json:"provider"`
-	ModelPath          string   `json:"model_path"`
-	VocabPath          string   `json:"vocab_path"`
-	RuntimeLibraryPath string   `json:"runtime_library_path"`
-	LowerCase          *bool    `json:"lower_case,omitempty"`
-	MaxSequenceLength  int      `json:"max_sequence_length"`
-	MaxCandidates      int      `json:"max_candidates"`
-	LeftContextRunes   int      `json:"left_context_runes"`
-	PositiveLabelIndex int      `json:"positive_label_index"`
-	CacheTTLSeconds    int      `json:"cache_ttl_seconds"`
-	InputNames         []string `json:"input_names"`
-	OutputNames        []string `json:"output_names"`
+	Enabled               bool     `json:"enabled"`
+	Provider              string   `json:"provider"`
+	ModelPath             string   `json:"model_path"`
+	VocabPath             string   `json:"vocab_path"`
+	RuntimeLibraryPath    string   `json:"runtime_library_path"`
+	LowerCase             *bool    `json:"lower_case,omitempty"`
+	MaxSequenceLength     int      `json:"max_sequence_length"`
+	MaxCandidates         int      `json:"max_candidates"`
+	LeftContextRunes      int      `json:"left_context_runes"`
+	PositiveLabelIndex    int      `json:"positive_label_index"`
+	CacheTTLSeconds       int      `json:"cache_ttl_seconds"`
+	MinSentenceInputChars int      `json:"min_sentence_input_chars"`
+	AsyncDebounceMS       int      `json:"async_debounce_ms"`
+	InputNames            []string `json:"input_names"`
+	OutputNames           []string `json:"output_names"`
 }
 
 type bertRuntimeConfig struct {
-	Enabled            bool
-	Provider           string
-	ModelPath          string
-	VocabPath          string
-	RuntimeLibraryPath string
-	LowerCase          bool
-	MaxSequenceLength  int
-	MaxCandidates      int
-	LeftContextRunes   int
-	PositiveLabelIndex int
-	CacheTTL           time.Duration
-	InputNames         []string
-	OutputNames        []string
+	Enabled               bool
+	Provider              string
+	ModelPath             string
+	VocabPath             string
+	RuntimeLibraryPath    string
+	LowerCase             bool
+	MaxSequenceLength     int
+	MaxCandidates         int
+	LeftContextRunes      int
+	PositiveLabelIndex    int
+	CacheTTL              time.Duration
+	MinSentenceInputChars int
+	AsyncDebounceMS       int
+	InputNames            []string
+	OutputNames           []string
 }
 
 func loadBertConfig() (*bertRuntimeConfig, error) {
@@ -168,18 +172,20 @@ func parseBertConfigJSON(data []byte, baseDir string) (*bertRuntimeConfig, error
 	}
 
 	cfg := &bertRuntimeConfig{
-		Enabled:            raw.Enabled,
-		Provider:           strings.TrimSpace(raw.Provider),
-		ModelPath:          resolveBertConfigPath(baseDir, bundledBertAssetsDir(), installedBertAssetsDir(), raw.ModelPath),
-		VocabPath:          resolveBertConfigPath(baseDir, bundledBertAssetsDir(), installedBertAssetsDir(), raw.VocabPath),
-		RuntimeLibraryPath: resolveBertConfigPath(baseDir, bundledBertAssetsDir(), installedBertAssetsDir(), raw.RuntimeLibraryPath),
-		LowerCase:          true,
-		MaxSequenceLength:  raw.MaxSequenceLength,
-		MaxCandidates:      raw.MaxCandidates,
-		LeftContextRunes:   raw.LeftContextRunes,
-		PositiveLabelIndex: raw.PositiveLabelIndex,
-		InputNames:         normalizeStringList(raw.InputNames),
-		OutputNames:        normalizeStringList(raw.OutputNames),
+		Enabled:               raw.Enabled,
+		Provider:              strings.TrimSpace(raw.Provider),
+		ModelPath:             resolveBertConfigPath(baseDir, bundledBertAssetsDir(), installedBertAssetsDir(), raw.ModelPath),
+		VocabPath:             resolveBertConfigPath(baseDir, bundledBertAssetsDir(), installedBertAssetsDir(), raw.VocabPath),
+		RuntimeLibraryPath:    resolveBertConfigPath(baseDir, bundledBertAssetsDir(), installedBertAssetsDir(), raw.RuntimeLibraryPath),
+		LowerCase:             true,
+		MaxSequenceLength:     raw.MaxSequenceLength,
+		MaxCandidates:         raw.MaxCandidates,
+		LeftContextRunes:      raw.LeftContextRunes,
+		PositiveLabelIndex:    raw.PositiveLabelIndex,
+		MinSentenceInputChars: raw.MinSentenceInputChars,
+		AsyncDebounceMS:       raw.AsyncDebounceMS,
+		InputNames:            normalizeStringList(raw.InputNames),
+		OutputNames:           normalizeStringList(raw.OutputNames),
 	}
 	if raw.LowerCase != nil {
 		cfg.LowerCase = *raw.LowerCase
@@ -200,6 +206,12 @@ func parseBertConfigJSON(data []byte, baseDir string) (*bertRuntimeConfig, error
 		cfg.CacheTTL = defaultBertCacheTTL
 	} else {
 		cfg.CacheTTL = time.Duration(raw.CacheTTLSeconds) * time.Second
+	}
+	if cfg.MinSentenceInputChars <= 0 {
+		cfg.MinSentenceInputChars = defaultBertMinSentenceInputChars
+	}
+	if cfg.AsyncDebounceMS <= 0 {
+		cfg.AsyncDebounceMS = defaultBertAsyncDebounceDelayMS
 	}
 	if !cfg.Enabled {
 		return cfg, nil

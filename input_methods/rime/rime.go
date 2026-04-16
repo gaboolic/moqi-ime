@@ -187,7 +187,6 @@ type IME struct {
 	bertConfig                   *bertRuntimeConfig
 	bertReranker                 bertReranker
 	bertCache                    *bertRerankCache
-	bertSentenceCache            *bertSentenceCandidateCache
 	bertResultCh                 chan bertAsyncResult
 	bertCursor                   int
 	bertConsumeKeyUpCode         int
@@ -260,12 +259,10 @@ func New(client *imecore.Client) imecore.TextService {
 		aiResultCh:        make(chan aiAsyncResult, 4),
 		bertConfig:        bertCfg,
 		bertCache:         newBertRerankCache(defaultBertCacheTTL),
-		bertSentenceCache: newBertSentenceCandidateCache(defaultBertSentenceCacheTTL),
 		bertResultCh:      make(chan bertAsyncResult, 4),
 	}
 	if bertCfg != nil && bertCfg.CacheTTL > 0 {
 		ime.bertCache = newBertRerankCache(bertCfg.CacheTTL)
-		ime.bertSentenceCache = newBertSentenceCandidateCache(bertCfg.CacheTTL)
 	}
 	ime.loadAppearancePrefs()
 	ime.syncBertRuntimeWithPreference()
@@ -292,12 +289,8 @@ func (ime *IME) SetBertReranker(reranker bertReranker, cfg *bertRuntimeConfig) {
 	if ime.bertCache == nil {
 		ime.bertCache = newBertRerankCache(defaultBertCacheTTL)
 	}
-	if ime.bertSentenceCache == nil {
-		ime.bertSentenceCache = newBertSentenceCandidateCache(defaultBertSentenceCacheTTL)
-	}
 	if cfg != nil && cfg.CacheTTL > 0 {
 		ime.bertCache = newBertRerankCache(cfg.CacheTTL)
-		ime.bertSentenceCache = newBertSentenceCandidateCache(cfg.CacheTTL)
 	}
 	ime.resetBertState()
 }
@@ -1331,6 +1324,13 @@ func (ime *IME) maybeApplyBertRerank(state rimeState) rimeState {
 	key := snapshot.Key
 	if ime.bertCache != nil {
 		if cached, ok := ime.bertCache.Get(key); ok {
+			debugLogf("BERT cache hit raw=%q composition=%q promoted=%t order=%v scores=%v",
+				snapshot.RawInput,
+				strings.TrimSpace(snapshot.State.Composition),
+				didBertPromoteCandidate(cached, len(state.Candidates)),
+				cached.Order,
+				bertLogScores(cached.Scores, 8),
+			)
 			state.Candidates = reorderCandidateItems(state.Candidates, cached)
 			if len(cached.Order) > 0 && !sameIntSlice(cached.Order, identityBertRerankResult(len(state.Candidates)).Order) {
 				if ime.bertCursor < 0 {
@@ -1384,13 +1384,23 @@ func (ime *IME) triggerBertRerank(snapshot bertAsyncSnapshot) bool {
 	reranker := ime.bertReranker
 	candidateCount := len(snapshot.State.Candidates)
 	go func() {
-		if bertAsyncDebounceDelay > 0 {
-			time.Sleep(time.Duration(bertAsyncDebounceDelay) * time.Millisecond)
+		debugLogf("BERT async start seq=%d raw=%q composition=%q candidateCount=%d",
+			requestSeq,
+			snapshot.RawInput,
+			strings.TrimSpace(snapshot.State.Composition),
+			candidateCount,
+		)
+		if delay := ime.bertAsyncDebounceDelay(); delay > 0 {
+			time.Sleep(delay)
 		}
 		ime.mu.Lock()
 		isLatest := requestSeq == ime.bertRequestSeq && snapshot.Key == ime.bertPendingKey
 		ime.mu.Unlock()
 		if !isLatest {
+			debugLogf("BERT async cancel seq=%d raw=%q reason=stale_before_build",
+				requestSeq,
+				snapshot.RawInput,
+			)
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), defaultBertTimeout())
@@ -1403,7 +1413,20 @@ func (ime *IME) triggerBertRerank(snapshot bertAsyncSnapshot) bool {
 			if err != nil {
 				result = shortBertFailureResult(candidateCount)
 			}
+		} else {
+			debugLogf("BERT async skip seq=%d raw=%q reason=no_valid_onnx_candidates",
+				requestSeq,
+				snapshot.RawInput,
+			)
 		}
+		debugLogf("BERT async finish seq=%d raw=%q promoted=%t order=%v scores=%v err=%v",
+			requestSeq,
+			snapshot.RawInput,
+			didBertPromoteCandidate(result, candidateCount),
+			result.Order,
+			bertLogScores(result.Scores, 8),
+			err,
+		)
 		asyncResult := bertAsyncResult{
 			RequestSeq: requestSeq,
 			Key:        snapshot.Key,
@@ -1431,11 +1454,18 @@ func (ime *IME) triggerBertRerank(snapshot bertAsyncSnapshot) bool {
 	return true
 }
 
-func (ime *IME) currentVisibleBackendState() (rimeState, bool) {
+func (ime *IME) currentBackendState() (rimeState, bool) {
 	if ime.backend == nil || !ime.backendReady() {
 		return rimeState{}, false
 	}
-	state := ime.backend.State()
+	return ime.backend.State(), true
+}
+
+func (ime *IME) currentVisibleBackendState() (rimeState, bool) {
+	state, ok := ime.currentBackendState()
+	if !ok {
+		return rimeState{}, false
+	}
 	visibleCandidateCount := ime.candidateCount()
 	if visibleCandidateCount > 0 && len(state.Candidates) > visibleCandidateCount {
 		state.Candidates = append([]candidateItem(nil), state.Candidates[:visibleCandidateCount]...)
@@ -1567,8 +1597,8 @@ func (ime *IME) commitBackendOverlayCandidate(resp *imecore.Response, backendInd
 }
 
 func (ime *IME) resolveVisibleBackendCandidateIndex(visibleIndex int) int {
-	state, ok := ime.currentVisibleBackendState()
-	if !ok || visibleIndex < 0 || visibleIndex >= len(state.Candidates) {
+	state, ok := ime.currentBackendState()
+	if !ok || visibleIndex < 0 || visibleIndex >= len(state.Candidates) || visibleIndex >= ime.candidateCount() {
 		return visibleIndex
 	}
 	order := ime.bertVisibleOrderForState(state)
@@ -1988,6 +2018,12 @@ func (ime *IME) applyBertAsyncResult(result bertAsyncResult) bool {
 	}
 	isCurrent := result.RequestSeq == ime.bertRequestSeq && result.Key == ime.bertPendingKey
 	if !isCurrent {
+		debugLogf("BERT async ignore seq=%d reason=stale_after_finish promoted=%t order=%v scores=%v",
+			result.RequestSeq,
+			didBertPromoteCandidate(result.Result, len(result.Result.Order)),
+			result.Result.Order,
+			bertLogScores(result.Result.Scores, 8),
+		)
 		return false
 	}
 	ime.bertPending = false
@@ -1996,6 +2032,12 @@ func (ime *IME) applyBertAsyncResult(result bertAsyncResult) bool {
 		log.Printf("BERT 候选重排失败: %v", result.Err)
 		return false
 	}
+	debugLogf("BERT async apply seq=%d promoted=%t order=%v scores=%v",
+		result.RequestSeq,
+		didBertPromoteCandidate(result.Result, len(result.Result.Order)),
+		result.Result.Order,
+		bertLogScores(result.Result.Scores, 8),
+	)
 	return true
 }
 
@@ -2016,7 +2058,7 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 	if resp == nil {
 		return true
 	}
-	state, ok := ime.currentVisibleBackendState()
+	state, ok := ime.currentBackendState()
 	if !ok {
 		ime.resetCustomPhraseOverlay()
 		ime.clearResponse(resp)
@@ -2035,9 +2077,13 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 		ime.keyComposing = false
 		return true
 	}
-	if state.SelectKeys != "" && state.SelectKeys != ime.selectKeys {
-		resp.SetSelKeys = state.SelectKeys
-		ime.selectKeys = state.SelectKeys
+	selectKeys := state.SelectKeys
+	if visibleCandidateCount := ime.candidateCount(); selectKeys != "" && visibleCandidateCount > 0 && len(selectKeys) > visibleCandidateCount {
+		selectKeys = selectKeys[:visibleCandidateCount]
+	}
+	if selectKeys != "" && selectKeys != ime.selectKeys {
+		resp.SetSelKeys = selectKeys
+		ime.selectKeys = selectKeys
 	}
 	resp.CompositionString = state.Composition
 	resp.CursorPos = state.CursorPos

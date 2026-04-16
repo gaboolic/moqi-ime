@@ -115,7 +115,6 @@ type testBackend struct {
 	syncOK                    bool
 	setOptionCalls            int
 	getOptionCalls            int
-	bertCandidatesForCodeFunc func(code string, limit int) []candidateItem
 }
 
 func newTestBackend() *testBackend {
@@ -410,30 +409,6 @@ func (b *testBackend) refreshCandidates() {
 		results = []candidateItem{{Text: code}}
 	}
 	b.candidates = results
-}
-
-func (b *testBackend) bertCandidatesForCode(code string, limit int) []candidateItem {
-	if b.bertCandidatesForCodeFunc != nil {
-		return b.bertCandidatesForCodeFunc(code, limit)
-	}
-	code = strings.TrimSpace(strings.ToLower(strings.ReplaceAll(code, "'", "")))
-	if code == "" || limit <= 0 {
-		return nil
-	}
-	for _, entry := range testDictionary() {
-		if entry.code != code {
-			continue
-		}
-		candidates := make([]candidateItem, 0, min(limit, len(entry.words)))
-		for _, word := range entry.words {
-			candidates = append(candidates, word)
-			if len(candidates) >= limit {
-				break
-			}
-		}
-		return candidates
-	}
-	return nil
 }
 
 func testDictionary() []testDictEntry {

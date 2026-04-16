@@ -113,15 +113,12 @@ func newRealBertIME(t *testing.T) *IME {
 		bertConfig:        cfg,
 		bertReranker:      reranker,
 		bertCache:         newBertRerankCache(defaultBertCacheTTL),
-		bertSentenceCache: newBertSentenceCandidateCache(defaultBertSentenceCacheTTL),
 		bertResultCh:      make(chan bertAsyncResult, 8),
 		aiResultCh:        make(chan aiAsyncResult, 4),
 	}
 	if cfg.CacheTTL > 0 {
 		ime.bertCache = newBertRerankCache(cfg.CacheTTL)
-		ime.bertSentenceCache = newBertSentenceCandidateCache(cfg.CacheTTL)
 	}
-
 	backend := newNativeBackend()
 	if backend == nil {
 		t.Fatal("native backend is unavailable")

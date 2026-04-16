@@ -157,6 +157,13 @@ func (r *bertOnnxReranker) Rerank(ctx context.Context, input bertRerankRequest) 
 		return identityBertRerankResult(input.OriginalCandidateCount), nil
 	}
 	contextText := truncateRunes(buildBertContextText(input), r.cfg.LeftContextRunes)
+	debugLogf("BERT ONNX rerank start context=%q raw=%q composition=%q previousCommit=%q candidates=%v",
+		contextText,
+		input.RawInput,
+		strings.TrimSpace(input.Composition),
+		input.PreviousCommit,
+		bertLogCandidates(input.CandidateIndexes, input.Candidates, 8),
+	)
 	scores := make([]bertScore, 0, len(input.Candidates))
 	for i, candidate := range input.Candidates {
 		select {
@@ -175,9 +182,25 @@ func (r *bertOnnxReranker) Rerank(ctx context.Context, input bertRerankRequest) 
 		})
 	}
 	if input.PromoteTopOnly {
-		return promoteSingleBertCandidate(scores, input.OriginalCandidateCount, bertMinScoreLead), nil
+		decision := evaluateSingleBertPromotion(scores, input.OriginalCandidateCount, bertMinScoreLead)
+		debugLogf("BERT ONNX rerank done mode=promote_top_only scores=%v promoted=%t reason=%q lead=%.4f best=%q next=%q order=%v",
+			bertLogScores(decision.Result.Scores, 8),
+			decision.Promoted,
+			decision.Reason,
+			decision.Lead,
+			strings.TrimSpace(decision.Best.Text),
+			strings.TrimSpace(decision.Next.Text),
+			decision.Result.Order,
+		)
+		return decision.Result, nil
 	}
-	return sortBertScores(scores, input.OriginalCandidateCount), nil
+	result := sortBertScores(scores, input.OriginalCandidateCount)
+	debugLogf("BERT ONNX rerank done mode=full_sort scores=%v promoted=%t order=%v",
+		bertLogScores(result.Scores, 8),
+		didBertPromoteCandidate(result, input.OriginalCandidateCount),
+		result.Order,
+	)
+	return result, nil
 }
 
 func buildBertContextText(input bertRerankRequest) string {

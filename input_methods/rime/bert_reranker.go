@@ -34,6 +34,15 @@ type bertScore struct {
 	Score float64
 }
 
+type bertPromotionDecision struct {
+	Result   bertRerankResult
+	Promoted bool
+	Reason   string
+	Best     bertScore
+	Next     bertScore
+	Lead     float64
+}
+
 type bertRerankResult struct {
 	Order  []int
 	Scores []bertScore
@@ -77,6 +86,64 @@ func cloneBertRerankResult(result bertRerankResult) bertRerankResult {
 		cloned.Scores = append([]bertScore(nil), result.Scores...)
 	}
 	return cloned
+}
+
+func bertLogStrings(values []string, limit int) []string {
+	if len(values) == 0 || limit <= 0 {
+		return nil
+	}
+	if len(values) > limit {
+		clipped := append([]string(nil), values[:limit]...)
+		clipped = append(clipped, fmt.Sprintf("...(%d more)", len(values)-limit))
+		return clipped
+	}
+	return append([]string(nil), values...)
+}
+
+func bertLogCandidates(indexes []int, candidates []candidateItem, limit int) []string {
+	if len(candidates) == 0 || limit <= 0 {
+		return nil
+	}
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	items := make([]string, 0, len(candidates))
+	for i, candidate := range candidates {
+		index := i
+		if i < len(indexes) {
+			index = indexes[i]
+		}
+		items = append(items, fmt.Sprintf("#%d:%s", index, strings.TrimSpace(candidate.Text)))
+	}
+	if len(indexes) > limit {
+		items = append(items, fmt.Sprintf("...(%d more)", len(indexes)-limit))
+	}
+	return items
+}
+
+func bertLogScores(scores []bertScore, limit int) []string {
+	if len(scores) == 0 || limit <= 0 {
+		return nil
+	}
+	if len(scores) > limit {
+		scores = scores[:limit]
+	}
+	items := make([]string, 0, len(scores))
+	for _, score := range scores {
+		items = append(items, fmt.Sprintf("#%d:%s=%.4f", score.Index, strings.TrimSpace(score.Text), score.Score))
+	}
+	return items
+}
+
+func isIdentityBertOrder(order []int, candidateCount int) bool {
+	return sameIntSlice(order, identityBertRerankResult(candidateCount).Order)
+}
+
+func didBertPromoteCandidate(result bertRerankResult, candidateCount int) bool {
+	if len(result.Order) == 0 || candidateCount <= 0 {
+		return false
+	}
+	return !isIdentityBertOrder(result.Order, candidateCount)
 }
 
 func normalizeBertRerankRequest(input bertRerankRequest, maxCandidates int) bertRerankRequest {
@@ -203,8 +270,15 @@ func sortBertScores(scores []bertScore, candidateCount int) bertRerankResult {
 }
 
 func promoteSingleBertCandidate(scores []bertScore, candidateCount int, minLead float64) bertRerankResult {
+	return evaluateSingleBertPromotion(scores, candidateCount, minLead).Result
+}
+
+func evaluateSingleBertPromotion(scores []bertScore, candidateCount int, minLead float64) bertPromotionDecision {
 	if candidateCount <= 0 {
-		return bertRerankResult{}
+		return bertPromotionDecision{
+			Result: bertRerankResult{},
+			Reason: "empty_candidates",
+		}
 	}
 	filtered := make([]bertScore, 0, len(scores))
 	for _, score := range scores {
@@ -214,7 +288,13 @@ func promoteSingleBertCandidate(scores []bertScore, candidateCount int, minLead 
 		filtered = append(filtered, score)
 	}
 	if len(filtered) < 2 {
-		return identityBertRerankResult(candidateCount)
+		return bertPromotionDecision{
+			Result: bertRerankResult{
+				Order:  identityBertRerankResult(candidateCount).Order,
+				Scores: filtered,
+			},
+			Reason: "insufficient_scores",
+		}
 	}
 	sort.SliceStable(filtered, func(i, j int) bool {
 		if filtered[i].Score == filtered[j].Score {
@@ -224,8 +304,30 @@ func promoteSingleBertCandidate(scores []bertScore, candidateCount int, minLead 
 	})
 	best := filtered[0]
 	next := filtered[1]
-	if best.Index <= 0 || best.Score-next.Score < minLead {
-		return identityBertRerankResult(candidateCount)
+	lead := best.Score - next.Score
+	if best.Index <= 0 {
+		return bertPromotionDecision{
+			Result: bertRerankResult{
+				Order:  identityBertRerankResult(candidateCount).Order,
+				Scores: filtered,
+			},
+			Reason: "best_already_first",
+			Best:   best,
+			Next:   next,
+			Lead:   lead,
+		}
+	}
+	if lead < minLead {
+		return bertPromotionDecision{
+			Result: bertRerankResult{
+				Order:  identityBertRerankResult(candidateCount).Order,
+				Scores: filtered,
+			},
+			Reason: fmt.Sprintf("lead_below_threshold(%.4f<%.4f)", lead, minLead),
+			Best:   best,
+			Next:   next,
+			Lead:   lead,
+		}
 	}
 	order := make([]int, 0, candidateCount)
 	order = append(order, best.Index)
@@ -234,9 +336,16 @@ func promoteSingleBertCandidate(scores []bertScore, candidateCount int, minLead 
 			order = append(order, i)
 		}
 	}
-	return bertRerankResult{
-		Order:  order,
-		Scores: filtered,
+	return bertPromotionDecision{
+		Result: bertRerankResult{
+			Order:  order,
+			Scores: filtered,
+		},
+		Promoted: true,
+		Reason:   fmt.Sprintf("promote #%d lead=%.4f", best.Index, lead),
+		Best:     best,
+		Next:     next,
+		Lead:     lead,
 	}
 }
 
@@ -281,7 +390,7 @@ func (ime *IME) bertSnapshotForState(state rimeState) (bertAsyncSnapshot, bool) 
 		return bertAsyncSnapshot{}, false
 	}
 	rawInput := normalizeBertRawInput(ime.customPhraseMatchInput(state))
-	if !isSuspectedSentenceInput(rawInput) {
+	if !isSuspectedSentenceInput(rawInput, ime.bertMinSentenceInputChars()) {
 		return bertAsyncSnapshot{}, false
 	}
 	if countWholeSentenceCandidates(state.Candidates, rawInput) < 2 {
@@ -299,29 +408,12 @@ func (ime *IME) bertSnapshotForState(state rimeState) (bertAsyncSnapshot, bool) 
 	return snapshot, snapshot.Key != ""
 }
 
-func (ime *IME) generatedSentenceCandidates(snapshot bertAsyncSnapshot) map[string]struct{} {
-	if ime.bertSentenceCache == nil {
-		ime.bertSentenceCache = newBertSentenceCandidateCache(defaultBertSentenceCacheTTL)
-	}
-	cacheKey := buildBertSentenceCacheKey(snapshot.SchemaID, snapshot.RawInput)
-	if cacheKey == "" {
-		return nil
-	}
-	sentences := ime.bertSentenceCache.GetOrCompute(cacheKey, func() ([]string, bool) {
-		if source := bertSchemaCandidateSourceFromBackend(ime.backend); source != nil {
-			return generateSentenceCandidatesWithSchemaSource(source, snapshot.SchemaID, snapshot.RawInput)
-		}
-		return generateSentenceCandidatesFromSource(bertCandidateSourceFromBackend(ime.backend), snapshot.RawInput), true
-	})
-	return sentenceSetFromList(sentences)
-}
-
 func (ime *IME) buildBertRequest(snapshot bertAsyncSnapshot) bertRerankRequest {
-	if !isSuspectedSentenceInput(snapshot.RawInput) {
-		return bertRerankRequest{}
-	}
-	generated := ime.generatedSentenceCandidates(snapshot)
-	if len(generated) == 0 {
+	if !isSuspectedSentenceInput(snapshot.RawInput, ime.bertMinSentenceInputChars()) {
+		debugLogf("BERT request skip raw=%q composition=%q reason=not_suspected_sentence",
+			snapshot.RawInput,
+			strings.TrimSpace(snapshot.State.Composition),
+		)
 		return bertRerankRequest{}
 	}
 	indexes := make([]int, 0, len(snapshot.State.Candidates))
@@ -331,16 +423,18 @@ func (ime *IME) buildBertRequest(snapshot bertAsyncSnapshot) bertRerankRequest {
 		if !isWholeSentenceCandidate(text, snapshot.RawInput) {
 			continue
 		}
-		if _, ok := generated[text]; !ok {
-			continue
-		}
 		indexes = append(indexes, i)
 		candidates = append(candidates, candidate)
 	}
 	if len(candidates) < 2 {
+		debugLogf("BERT request skip raw=%q composition=%q reason=insufficient_menu_sentences matched=%v",
+			snapshot.RawInput,
+			strings.TrimSpace(snapshot.State.Composition),
+			bertLogCandidates(indexes, candidates, 8),
+		)
 		return bertRerankRequest{}
 	}
-	return normalizeBertRerankRequest(bertRerankRequest{
+	request := normalizeBertRerankRequest(bertRerankRequest{
 		PreviousCommit:         snapshot.PreviousCommit,
 		Composition:            snapshot.State.Composition,
 		RawInput:               snapshot.RawInput,
@@ -349,6 +443,13 @@ func (ime *IME) buildBertRequest(snapshot bertAsyncSnapshot) bertRerankRequest {
 		PromoteTopOnly:         true,
 		Candidates:             candidates,
 	}, ime.bertMaxCandidates())
+	debugLogf("BERT request prepared raw=%q composition=%q previousCommit=%q source=full_menu onnxCandidates=%v",
+		request.RawInput,
+		strings.TrimSpace(request.Composition),
+		request.PreviousCommit,
+		bertLogCandidates(request.CandidateIndexes, request.Candidates, 8),
+	)
+	return request
 }
 
 func (ime *IME) bertMaxCandidates() int {
@@ -360,4 +461,18 @@ func (ime *IME) bertMaxCandidates() int {
 
 func defaultBertTimeout() time.Duration {
 	return 1500 * time.Millisecond
+}
+
+func (ime *IME) bertMinSentenceInputChars() int {
+	if ime != nil && ime.bertConfig != nil && ime.bertConfig.MinSentenceInputChars > 0 {
+		return ime.bertConfig.MinSentenceInputChars
+	}
+	return defaultBertMinSentenceInputChars
+}
+
+func (ime *IME) bertAsyncDebounceDelay() time.Duration {
+	if ime != nil && ime.bertConfig != nil && ime.bertConfig.AsyncDebounceMS > 0 {
+		return time.Duration(ime.bertConfig.AsyncDebounceMS) * time.Millisecond
+	}
+	return time.Duration(defaultBertAsyncDebounceDelayMS) * time.Millisecond
 }

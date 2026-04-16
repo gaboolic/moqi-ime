@@ -4,7 +4,6 @@ package rime
 
 import (
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +18,14 @@ var (
 	rimeInitOnce sync.Once
 	rimeInitOK   bool
 	rimeRuntime  nativeRuntimeState
+	nativeFindSessionFunc        = FindSession
+	nativeStartSessionFunc       = StartSession
+	nativeEndSessionFunc         = EndSession
+	nativeClearCompositionFunc   = ClearComposition
+	nativeProcessKeyFunc         = ProcessKey
+	nativeGetMenuFunc            = GetMenu
+	nativeSelectSchemaFunc       = SelectSchema
+	nativeSetOptionFunc          = SetOption
 )
 
 type nativeRuntimeState struct {
@@ -179,14 +186,29 @@ func (b *nativeBackend) SyncUserData() bool {
 }
 
 func (b *nativeBackend) ensureSessionLocked() bool {
-	if b.sessionID != 0 && FindSession(b.sessionID) {
+	return b.ensureSessionHandleLocked(&b.sessionID)
+}
+
+func (b *nativeBackend) ensureSessionHandleLocked(handle *RimeSessionId) bool {
+	if handle == nil {
+		return false
+	}
+	if *handle != 0 && nativeFindSessionFunc(*handle) {
 		return true
 	}
-	sessionID, ok := StartSession()
+	sessionID, ok := nativeStartSessionFunc()
 	if ok {
-		b.sessionID = sessionID
+		*handle = sessionID
 	}
 	return ok
+}
+
+func (b *nativeBackend) destroySessionHandleLocked(handle *RimeSessionId) {
+	if handle == nil || *handle == 0 {
+		return
+	}
+	nativeEndSessionFunc(*handle)
+	*handle = 0
 }
 
 func (b *nativeBackend) HasSession() bool {
@@ -197,7 +219,7 @@ func (b *nativeBackend) HasSession() bool {
 		return false
 	}
 	defer rimeRuntime.endOperation()
-	return b.sessionID != 0 && FindSession(b.sessionID)
+	return b.sessionID != 0 && nativeFindSessionFunc(b.sessionID)
 }
 
 func (b *nativeBackend) EnsureSession() bool {
@@ -214,10 +236,7 @@ func (b *nativeBackend) DestroySession() {
 		return
 	}
 	defer rimeRuntime.endOperation()
-	if b.sessionID != 0 {
-		EndSession(b.sessionID)
-		b.sessionID = 0
-	}
+	b.destroySessionHandleLocked(&b.sessionID)
 }
 
 func (b *nativeBackend) ClearComposition() {
@@ -226,7 +245,7 @@ func (b *nativeBackend) ClearComposition() {
 	}
 	defer rimeRuntime.endOperation()
 	if b.sessionID != 0 {
-		ClearComposition(b.sessionID)
+		nativeClearCompositionFunc(b.sessionID)
 	}
 }
 
@@ -276,70 +295,6 @@ func (b *nativeBackend) State() rimeState {
 	state.AsciiMode = b.GetOption("ascii_mode")
 	state.FullShape = b.GetOption("full_shape")
 	return state
-}
-
-func (b *nativeBackend) bertCandidatesForCode(code string, limit int) []candidateItem {
-	code = strings.TrimSpace(strings.ToLower(code))
-	if code == "" || limit <= 0 {
-		return nil
-	}
-	schemaID := ""
-	if rimeRuntime.tryBeginOperation() {
-		if b.ensureSessionLocked() {
-			schemaID = GetCurrentSchema(b.sessionID)
-		}
-		rimeRuntime.endOperation()
-	}
-	candidates, _ := b.bertCandidatesForCodeWithSchema(schemaID, code, limit)
-	return candidates
-}
-
-func (b *nativeBackend) bertCandidatesForCodeWithSchema(schemaID, code string, limit int) ([]candidateItem, bool) {
-	code = strings.TrimSpace(strings.ToLower(code))
-	if code == "" || limit <= 0 {
-		return nil, true
-	}
-	if !rimeRuntime.tryBeginExclusiveOperation() {
-		debugLogf("skip BERT sentence scan because native runtime is busy schema=%q code=%q", schemaID, code)
-		return nil, false
-	}
-	defer rimeRuntime.endExclusiveOperation()
-
-	sessionID, ok := StartSession()
-	if !ok || sessionID == 0 {
-		return nil, true
-	}
-	defer EndSession(sessionID)
-
-	if schemaID != "" {
-		_ = SelectSchema(sessionID, schemaID)
-	}
-	SetOption(sessionID, "ascii_mode", false)
-
-	for _, key := range code {
-		if !ProcessKey(sessionID, int(key), 0) {
-			return nil, true
-		}
-	}
-	menu, ok := GetMenu(sessionID)
-	if !ok || len(menu.Candidates) == 0 {
-		return nil, true
-	}
-	candidates := make([]candidateItem, 0, min(limit, len(menu.Candidates)))
-	for _, candidate := range menu.Candidates {
-		text := strings.TrimSpace(candidate.Text)
-		if text == "" {
-			continue
-		}
-		candidates = append(candidates, candidateItem{
-			Text:    text,
-			Comment: strings.TrimSpace(candidate.Comment),
-		})
-		if len(candidates) >= limit {
-			break
-		}
-	}
-	return candidates, true
 }
 
 func (b *nativeBackend) SetOption(name string, value bool) {

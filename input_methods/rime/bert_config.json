@@ -10,6 +10,8 @@
   "left_context_runes": 48,
   "positive_label_index": 1,
   "cache_ttl_seconds": 120,
+  "min_sentence_input_chars": 8,
+  "async_debounce_ms": 180,
   "input_names": [
     "input_ids",
     "attention_mask",
