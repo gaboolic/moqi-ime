@@ -183,6 +183,7 @@ type IME struct {
 	appearanceVersion            uint64
 	inputStateShared             bool
 	sharedOptions                map[string]bool
+	sharedInputStateNeedsApply   bool
 	autoPairQuotes               bool
 	semicolonSelectSecond        bool
 	rawInputTracked              string
@@ -273,6 +274,7 @@ func (ime *IME) HandleRequest(req *imecore.Request) *imecore.Response {
 
 	resp := imecore.NewResponse(req.SeqNum, true)
 	if ime.syncAppearancePrefs() {
+		ime.sharedInputStateNeedsApply = ime.inputStateShared
 		resp.CustomizeUI = ime.customizeUIMap()
 	}
 	ime.consumeAIAsyncResult(resp)
@@ -1484,8 +1486,9 @@ func (ime *IME) createSession(resp *imecore.Response) {
 	if !ime.backend.EnsureSession() {
 		return
 	}
-	if ime.inputStateShared && !hadSession {
+	if ime.inputStateShared && (!hadSession || ime.sharedInputStateNeedsApply) {
 		ime.applySharedInputStateToBackend()
+		ime.sharedInputStateNeedsApply = false
 	}
 	if ime.candidateCount() != 9 {
 		_ = ime.backend.SetCandidatePageSize(ime.candidateCount())

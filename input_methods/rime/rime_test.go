@@ -2838,6 +2838,46 @@ func TestProcessKeySkipsSharedStateSyncForRegularTyping(t *testing.T) {
 	}
 }
 
+func TestCreateSessionAppliesSharedInputStateAfterSharedConfigUpdateWithExistingSession(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	resetSharedAppearanceConfigForTest()
+
+	second := newTestIME()
+	second.inputStateShared = true
+	second.createSession(nil)
+	secondBackend := second.backend.(*testBackend)
+	secondBackend.setOptionCalls = 0
+
+	first := newTestIME()
+	first.inputStateShared = true
+	first.backend.SetOption("ascii_mode", true)
+	first.captureSharedInputStateFromBackend()
+	first.saveAppearancePrefs()
+
+	resp := second.HandleRequest(&imecore.Request{
+		SeqNum: 19,
+		Method: "onMenu",
+		ID:     imecore.FlexibleID{String: "settings"},
+	})
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected onMenu handled, got %d", resp.ReturnValue)
+	}
+	if !second.sharedInputStateNeedsApply {
+		t.Fatal("expected shared input state update to mark session for reapply")
+	}
+
+	second.createSession(nil)
+	if second.sharedInputStateNeedsApply {
+		t.Fatal("expected shared input state apply marker cleared after createSession")
+	}
+	if !second.backend.GetOption("ascii_mode") {
+		t.Fatal("expected existing session to receive updated ascii_mode")
+	}
+	if secondBackend.setOptionCalls == 0 {
+		t.Fatal("expected createSession to reapply shared state for existing session after config update")
+	}
+}
+
 func TestLoadAppearancePrefsKeepsPresetThemeAfterPersist(t *testing.T) {
 	t.Setenv("APPDATA", t.TempDir())
 	resetSharedAppearanceConfigForTest()
