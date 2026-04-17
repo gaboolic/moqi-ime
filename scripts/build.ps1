@@ -119,22 +119,6 @@ function Copy-DirectoryContents {
     Copy-Item -Path (Join-Path $Source "*") -Destination $Destination -Recurse -Force
 }
 
-function Get-BertRuntimeConfig {
-    param([string] $ConfigPath)
-
-    if (-not (Test-Path -LiteralPath $ConfigPath)) {
-        return $null
-    }
-
-    try {
-        return Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
-    }
-    catch {
-        Write-Warning ("Failed to parse bert_config.json: {0}" -f $_.Exception.Message)
-        return $null
-    }
-}
-
 function Get-AvailableCCompiler {
     param([string] $RequestedCompiler = "")
 
@@ -436,7 +420,6 @@ $RimeDataDir = Join-Path $RepoRoot "rime-frost"
 $PackageRimeDir = Join-Path $PackageDir "input_methods\rime"
 $PackageRimeDataDir = Join-Path $PackageRimeDir "data"
 $PackageRimePluginsDir = Join-Path $PackageRimeDir "rime-plugins"
-$BertConfigPath = Join-Path $RimeDir "bert_config.json"
 $BertSourceDir = Join-Path $RimeDir "bert"
 $BertRuntimeDLL = Join-Path $BertSourceDir "onnxruntime.dll"
 $BertGrammarSourceDir = Join-Path $BertGrammarRepoRoot "bert_grammar"
@@ -447,7 +430,6 @@ $OnnxRuntimeRuntimeDlls = Resolve-OnnxRuntimeRuntimeDlls -OnnxRuntimeRoot $OnnxR
 $ServerIcon = Join-Path $IconsDir "mo.ico"
 $ServerVersionInfo = Join-Path $BuildRoot "server.versioninfo.json"
 $ServerResource = Join-Path $RepoRoot "resource_windows_amd64.syso"
-$BertRuntimeConfig = Get-BertRuntimeConfig -ConfigPath $BertConfigPath
 
 Write-Host "============================================"
 Write-Host " Moqi IME Go Backend Build Script"
