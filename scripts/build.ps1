@@ -11,11 +11,16 @@
 
 .PARAMETER PackageDir
   Packaged runtime directory (default: scripts\build\moqi-ime).
+
+.PARAMETER CCompiler
+  Optional explicit C compiler path for CGO builds (clang.exe, gcc.exe, or cl.exe).
 #>
 param(
     [string] $RepoRoot = "",
     [string] $BuildRoot = "",
-    [string] $PackageDir = ""
+    [string] $PackageDir = "",
+    [string] $CCompiler = "",
+    [string] $RimeDllPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -114,6 +119,204 @@ function Copy-DirectoryContents {
     Copy-Item -Path (Join-Path $Source "*") -Destination $Destination -Recurse -Force
 }
 
+function Get-BertRuntimeConfig {
+    param([string] $ConfigPath)
+
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        return $null
+    }
+
+    try {
+        return Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    }
+    catch {
+        Write-Warning ("Failed to parse bert_config.json: {0}" -f $_.Exception.Message)
+        return $null
+    }
+}
+
+function Get-AvailableCCompiler {
+    param([string] $RequestedCompiler = "")
+
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($RequestedCompiler)) {
+        $candidates += $RequestedCompiler
+    }
+    foreach ($name in @("MOQI_C_COMPILER", "CC")) {
+        $value = [Environment]::GetEnvironmentVariable($name)
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            $candidates += $value
+        }
+    }
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+        if (Test-Path -LiteralPath $candidate) {
+            return [System.IO.Path]::GetFullPath($candidate)
+        }
+        $command = Get-Command $candidate -ErrorAction SilentlyContinue
+        if ($command) {
+            return $command.Name
+        }
+    }
+    foreach ($name in @("gcc", "clang", "clang-cl", "cl")) {
+        $command = Get-Command $name -ErrorAction SilentlyContinue
+        if ($command) {
+            return $name
+        }
+    }
+    return ""
+}
+
+function Resolve-FirstExistingPath {
+    param([string[]] $Candidates)
+
+    foreach ($candidate in $Candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+        if (Test-Path -LiteralPath $candidate) {
+            return [System.IO.Path]::GetFullPath($candidate)
+        }
+    }
+    return ""
+}
+
+function Resolve-BertGrammarPluginDll {
+    param(
+        [string] $PluginRepoRoot,
+        [string] $LibrimeRoot,
+        [string] $BuildRoot
+    )
+
+    $explicitPath = [Environment]::GetEnvironmentVariable("MOQI_BERT_GRAMMAR_DLL")
+    return Resolve-FirstExistingPath @(
+        $explicitPath,
+        (Join-Path $PluginRepoRoot "build\bin\rime-plugins\rime-bert-grammar.dll"),
+        (Join-Path $PluginRepoRoot "build\lib\rime-plugins\rime-bert-grammar.dll"),
+        (Join-Path $PluginRepoRoot "build\bin\rime-plugins\Release\rime-bert-grammar.dll"),
+        (Join-Path $PluginRepoRoot "build\lib\rime-plugins\Release\rime-bert-grammar.dll"),
+        (Join-Path $LibrimeRoot "build-bert-grammar\bin\rime-plugins\rime-bert-grammar.dll"),
+        (Join-Path $LibrimeRoot "build-bert-grammar\lib\rime-plugins\rime-bert-grammar.dll"),
+        (Join-Path $LibrimeRoot "build-bert-grammar\bin\rime-plugins\Release\rime-bert-grammar.dll"),
+        (Join-Path $LibrimeRoot "build-bert-grammar\lib\rime-plugins\Release\rime-bert-grammar.dll"),
+        (Join-Path $LibrimeRoot "build\bin\rime-plugins\rime-bert-grammar.dll"),
+        (Join-Path $LibrimeRoot "build\lib\rime-plugins\rime-bert-grammar.dll"),
+        (Join-Path $LibrimeRoot "build\bin\rime-plugins\Release\rime-bert-grammar.dll"),
+        (Join-Path $LibrimeRoot "build\lib\rime-plugins\Release\rime-bert-grammar.dll"),
+        (Join-Path $BuildRoot "rime-plugins\rime-bert-grammar.dll")
+    )
+}
+
+function Resolve-RimeDllPath {
+    param(
+        [string] $RequestedPath,
+        [string] $RepoRoot,
+        [string] $BuildRoot
+    )
+
+    $explicitPath = $RequestedPath
+    if (-not $explicitPath) {
+        $explicitPath = [Environment]::GetEnvironmentVariable("MOQI_RIME_DLL")
+    }
+
+    $programFilesX86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+    $installedRimeDll = ""
+    if (-not [string]::IsNullOrWhiteSpace($programFilesX86)) {
+        $installedRimeDll = Join-Path $programFilesX86 "MoqiIM\moqi-ime\input_methods\rime\rime.dll"
+    }
+
+    return Resolve-FirstExistingPath @(
+        $explicitPath,
+        $installedRimeDll,
+        (Join-Path $BuildRoot "rime.dll"),
+        (Join-Path $RepoRoot "input_methods\rime\rime.dll")
+    )
+}
+
+function Test-OnnxRuntimeSdkRoot {
+    param([string] $Root)
+
+    if ([string]::IsNullOrWhiteSpace($Root)) {
+        return $false
+    }
+
+    $resolved = [System.IO.Path]::GetFullPath($Root)
+    return (
+        (Test-Path -LiteralPath (Join-Path $resolved "include\onnxruntime_cxx_api.h")) -and
+        (
+            (Test-Path -LiteralPath (Join-Path $resolved "lib\onnxruntime.lib")) -or
+            (Test-Path -LiteralPath (Join-Path $resolved "runtimes\win-x64\native\onnxruntime.lib"))
+        )
+    )
+}
+
+function Resolve-OnnxRuntimeRoot {
+    param([string] $PluginRepoRoot)
+
+    $explicitRoot = [Environment]::GetEnvironmentVariable("MOQI_ONNXRUNTIME_ROOT")
+    if (-not $explicitRoot) {
+        $explicitRoot = [Environment]::GetEnvironmentVariable("ONNXRUNTIME_ROOT_DIR")
+    }
+
+    $candidates = @(
+        $explicitRoot,
+        (Join-Path $PluginRepoRoot ".deps\onnxruntime\win-x64"),
+        (Join-Path $PluginRepoRoot ".deps\onnxruntime\current")
+    )
+
+    $depsRoot = Join-Path $PluginRepoRoot ".deps\onnxruntime"
+    if (Test-Path -LiteralPath $depsRoot) {
+        $versionDirs = Get-ChildItem -LiteralPath $depsRoot -Directory -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending
+        foreach ($dir in $versionDirs) {
+            $candidates += $dir.FullName
+            $candidates += (Join-Path $dir.FullName "pkg")
+        }
+    }
+
+    foreach ($candidate in $candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+        if (Test-OnnxRuntimeSdkRoot $candidate) {
+            return [System.IO.Path]::GetFullPath($candidate)
+        }
+    }
+
+    return ""
+}
+
+function Resolve-OnnxRuntimeRuntimeDlls {
+    param([string] $OnnxRuntimeRoot)
+
+    if ([string]::IsNullOrWhiteSpace($OnnxRuntimeRoot)) {
+        return @()
+    }
+
+    $resolvedRoot = [System.IO.Path]::GetFullPath($OnnxRuntimeRoot)
+    $candidates = @(
+        (Join-Path $resolvedRoot "bin\onnxruntime.dll"),
+        (Join-Path $resolvedRoot "lib\onnxruntime.dll"),
+        (Join-Path $resolvedRoot "runtimes\win-x64\native\onnxruntime.dll"),
+        (Join-Path $resolvedRoot "bin\onnxruntime_providers_shared.dll"),
+        (Join-Path $resolvedRoot "lib\onnxruntime_providers_shared.dll"),
+        (Join-Path $resolvedRoot "runtimes\win-x64\native\onnxruntime_providers_shared.dll")
+    )
+
+    $resolved = New-Object System.Collections.Generic.List[string]
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            $fullPath = [System.IO.Path]::GetFullPath($candidate)
+            if (-not $resolved.Contains($fullPath)) {
+                $resolved.Add($fullPath)
+            }
+        }
+    }
+    return $resolved.ToArray()
+}
+
 function Prepare-RimeData {
     param(
         [string] $RimeDataDir,
@@ -136,6 +339,22 @@ function Prepare-RimeData {
     }
 
     Write-Host "[INFO] Packaged Rime shared data prepared at `"$PackageRimeDataDir`""
+}
+
+function Write-BertGrammarDefaultConfig {
+    param([string] $PackageRimeDataDir)
+
+    $defaultCustomPath = Join-Path $PackageRimeDataDir "default.custom.yaml"
+    $content = @"
+patch:
+  bert_grammar:
+    model_path: bert_grammar/bert-base-chinese.onnx
+    vocab_path: bert_grammar/vocab.txt
+"@
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($defaultCustomPath, $content.Trim() + "`r`n", $utf8NoBom)
+    Write-Host "[INFO] Wrote packaged BERT grammar config to `"$defaultCustomPath`""
 }
 
 function Write-ServerVersionInfo {
@@ -199,6 +418,9 @@ function Write-ServerVersionInfo {
 $scriptRepoRoot = Join-Path $PSScriptRoot ".."
 if (-not $RepoRoot) { $RepoRoot = $scriptRepoRoot }
 $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
+$WorkspaceRoot = Split-Path $RepoRoot -Parent
+$LibrimeRoot = Join-Path $WorkspaceRoot "librime"
+$BertGrammarRepoRoot = Join-Path $WorkspaceRoot "librime-bert-gram"
 
 if (-not $BuildRoot) { $BuildRoot = Join-Path $PSScriptRoot "build" }
 if (-not $PackageDir) { $PackageDir = Join-Path $BuildRoot "moqi-ime" }
@@ -213,9 +435,19 @@ $RimeDir = Join-Path $InputMethodsDir "rime"
 $RimeDataDir = Join-Path $RepoRoot "rime-frost"
 $PackageRimeDir = Join-Path $PackageDir "input_methods\rime"
 $PackageRimeDataDir = Join-Path $PackageRimeDir "data"
+$PackageRimePluginsDir = Join-Path $PackageRimeDir "rime-plugins"
+$BertConfigPath = Join-Path $RimeDir "bert_config.json"
+$BertSourceDir = Join-Path $RimeDir "bert"
+$BertRuntimeDLL = Join-Path $BertSourceDir "onnxruntime.dll"
+$BertGrammarSourceDir = Join-Path $BertGrammarRepoRoot "bert_grammar"
+$ResolvedRimeDll = Resolve-RimeDllPath -RequestedPath $RimeDllPath -RepoRoot $RepoRoot -BuildRoot $BuildRoot
+$BertGrammarPluginDll = Resolve-BertGrammarPluginDll -PluginRepoRoot $BertGrammarRepoRoot -LibrimeRoot $LibrimeRoot -BuildRoot $BuildRoot
+$OnnxRuntimeRoot = Resolve-OnnxRuntimeRoot -PluginRepoRoot $BertGrammarRepoRoot
+$OnnxRuntimeRuntimeDlls = Resolve-OnnxRuntimeRuntimeDlls -OnnxRuntimeRoot $OnnxRuntimeRoot
 $ServerIcon = Join-Path $IconsDir "mo.ico"
 $ServerVersionInfo = Join-Path $BuildRoot "server.versioninfo.json"
 $ServerResource = Join-Path $RepoRoot "resource_windows_amd64.syso"
+$BertRuntimeConfig = Get-BertRuntimeConfig -ConfigPath $BertConfigPath
 
 Write-Host "============================================"
 Write-Host " Moqi IME Go Backend Build Script"
@@ -242,6 +474,21 @@ Write-Host "[INFO] Output directory: `"$PackageDir`""
 if (-not (Test-Path -LiteralPath (Join-Path $RimeDataDir "default.yaml"))) {
     throw "Missing rime-frost shared data submodule: `"$RimeDataDir`"`nRun: git submodule update --init --recursive rime-frost"
 }
+if (-not (Test-Path -LiteralPath $BertGrammarRepoRoot)) {
+    throw "Missing librime-bert-gram repository: `"$BertGrammarRepoRoot`""
+}
+if (-not $BertGrammarPluginDll) {
+    throw "Missing rime-bert-grammar.dll. Build the standalone plugin first, or set MOQI_BERT_GRAMMAR_DLL to the built DLL path."
+}
+if (-not $ResolvedRimeDll) {
+    throw "Missing rime.dll. Pass -RimeDllPath, set MOQI_RIME_DLL, or install/copy the official release rime.dll first."
+}
+if (-not $OnnxRuntimeRoot) {
+    throw "Missing ONNX Runtime SDK. Set MOQI_ONNXRUNTIME_ROOT / ONNXRUNTIME_ROOT_DIR, or prepare librime-bert-gram\.deps\onnxruntime."
+}
+if (-not $OnnxRuntimeRuntimeDlls -or $OnnxRuntimeRuntimeDlls.Count -eq 0) {
+    throw "Missing ONNX Runtime runtime DLLs under `"$OnnxRuntimeRoot`""
+}
 
 Push-Location $RepoRoot
 try {
@@ -257,10 +504,24 @@ try {
     $oldGoos = $env:GOOS
     $oldGoarch = $env:GOARCH
     $oldCgoEnabled = $env:CGO_ENABLED
+    $oldCC = $env:CC
     $goversioninfo = Get-GoTool -ToolName "goversioninfo" -ModuleAtVersion "github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest"
     $env:GOOS = "windows"
     $env:GOARCH = "amd64"
-    $env:CGO_ENABLED = "0"
+    $availableCompiler = Get-AvailableCCompiler -RequestedCompiler $CCompiler
+    $useCgo = $false
+    $shouldBuildBertRuntime = (Test-Path -LiteralPath $BertRuntimeDLL)
+    if ($shouldBuildBertRuntime) {
+        if ($availableCompiler) {
+            Write-Host ("[INFO] BERT runtime detected; using C compiler: {0}" -f $availableCompiler)
+            $useCgo = $true
+            $env:CC = $availableCompiler
+        }
+        else {
+            Write-Warning "BERT runtime assets are present but no C compiler was found. Pass -CCompiler or set CC/MOQI_C_COMPILER to build the real reranker; otherwise the stub reranker will be used."
+        }
+    }
+    $env:CGO_ENABLED = if ($useCgo) { "1" } else { "0" }
 
     try {
         if (-not (Test-Path -LiteralPath $ServerIcon)) {
@@ -278,6 +539,7 @@ try {
         $env:GOOS = $oldGoos
         $env:GOARCH = $oldGoarch
         $env:CGO_ENABLED = $oldCgoEnabled
+        $env:CC = $oldCC
     }
 
     Write-Host "[INFO] Built: `"$ServerExe`""
@@ -303,6 +565,20 @@ try {
 
     Write-Step -Title "Step 6: Prepare packaged Rime shared data"
     Prepare-RimeData -RimeDataDir $RimeDataDir -PackageRimeDataDir $PackageRimeDataDir
+    Write-BertGrammarDefaultConfig -PackageRimeDataDir $PackageRimeDataDir
+
+    if (-not (Test-Path -LiteralPath $BertGrammarSourceDir)) {
+        throw "BERT grammar asset directory is missing: `"$BertGrammarSourceDir`""
+    }
+    $packageBertDir = Join-Path $PackageRimeDir "bert"
+    Write-Host ("[INFO] BERT runtime assets packaged in `"{0}`" regardless of enabled flag" -f $packageBertDir)
+    foreach ($assetName in @("model.onnx", "model.onnx.data", "vocab.txt", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json")) {
+        $packagedAsset = Join-Path $PackageRimeDir ("bert\" + $assetName)
+        if (Test-Path -LiteralPath $packagedAsset) {
+            Remove-Item -LiteralPath $packagedAsset -Force
+            Write-Host ("[INFO] Removed packaged optional BERT asset `"{0}`"" -f $packagedAsset)
+        }
+    }
 
     $pathsToRemove = @(
         @{ Path = Join-Path $PackageDir "input_methods\rime\data\others"; Label = "rime shared data others directory" },
@@ -321,11 +597,18 @@ try {
         Write-Host "[INFO] Removed packaged Go source files"
     }
 
-    $rimeDll = Join-Path $RimeDir "rime.dll"
-    if (Test-Path -LiteralPath $rimeDll) {
-        Copy-Item -LiteralPath $rimeDll -Destination (Join-Path $PackageDir "input_methods\rime\rime.dll") -Force
-        Write-Host "[INFO] Copied rime.dll into package output"
+    Copy-Item -LiteralPath $ResolvedRimeDll -Destination (Join-Path $PackageDir "input_methods\rime\rime.dll") -Force
+    Write-Host "[INFO] Copied rime.dll into package output from `"$ResolvedRimeDll`""
+    Ensure-Directory -Path $PackageRimePluginsDir
+    Copy-Item -LiteralPath $BertGrammarPluginDll -Destination (Join-Path $PackageRimePluginsDir "rime-bert-grammar.dll") -Force
+    foreach ($runtimeDll in $OnnxRuntimeRuntimeDlls) {
+        Copy-Item -LiteralPath $runtimeDll -Destination (Join-Path $PackageRimePluginsDir ([System.IO.Path]::GetFileName($runtimeDll))) -Force
     }
+    Write-Host "[INFO] Copied BERT grammar plugin DLL and ONNX Runtime runtime DLLs into rime-plugins"
+
+    $packageBertGrammarDataDir = Join-Path $PackageRimeDataDir "bert_grammar"
+    Copy-DirectoryContents -Source $BertGrammarSourceDir -Destination $packageBertGrammarDataDir
+    Write-Host "[INFO] Copied BERT grammar shared data assets"
 
     Write-Step -Title "Step 7: Generate backends.json snippet"
     @(
@@ -356,4 +639,6 @@ Write-Host "2. Ensure C:\Program Files (x86)\MoqiIM\backends.json includes moqi-
 Write-Host "3. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\*\ime.json exists."
 Write-Host "4. Re-register both MoqiTextService.dll files after copying."
 Write-Host "5. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\rime contains rime.dll."
-Write-Host "6. Start or restart MoqiLauncher.exe after install."
+Write-Host "6. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\rime\rime-plugins contains rime-bert-grammar.dll, onnxruntime.dll, and any companion ONNX Runtime DLLs."
+Write-Host "7. Place BERT grammar model assets under C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\rime\data\bert_grammar."
+Write-Host "8. Start or restart MoqiLauncher.exe after install."

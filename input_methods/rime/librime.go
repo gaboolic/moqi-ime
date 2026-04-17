@@ -154,6 +154,10 @@ type rimeConfigIteratorC struct {
 var (
 	rimeDLLMu sync.Mutex
 	rimeDLL   *syscall.LazyDLL
+	rimePluginDLLsMu sync.Mutex
+	rimePluginDLLs   = map[string]*syscall.DLL{}
+	rimeModulesMu    sync.Mutex
+	rimeExtraModules []string
 	rimeProcs struct {
 		setup                 *syscall.LazyProc
 		initialize            *syscall.LazyProc
@@ -196,6 +200,24 @@ var (
 	}
 )
 
+type rimePluginSpec struct {
+	relativePath string
+	moduleName   string
+}
+
+type rimeTraitsBridge struct {
+	traits      rimeTraitsC
+	moduleBytes [][]byte
+	modulePtrs  []*byte
+}
+
+var bundledRimePluginSpecs = []rimePluginSpec{
+	{
+		relativePath: filepath.Join("rime-plugins", "rime-bert-grammar.dll"),
+		moduleName:   "bert_grammar",
+	},
+}
+
 func loadRimeDLL(dllPath string) error {
 	rimeDLLMu.Lock()
 	defer rimeDLLMu.Unlock()
@@ -208,6 +230,9 @@ func loadRimeDLL(dllPath string) error {
 		dllPath = "rime.dll"
 	}
 	dll := syscall.NewLazyDLL(dllPath)
+	if err := dll.Load(); err != nil {
+		return err
+	}
 	procs := struct {
 		setup                 *syscall.LazyProc
 		initialize            *syscall.LazyProc
@@ -304,12 +329,120 @@ func loadRimeDLL(dllPath string) error {
 	return nil
 }
 
+func loadRimePluginDLL(dllPath string) error {
+	if strings.TrimSpace(dllPath) == "" {
+		return fmt.Errorf("plugin DLL path is empty")
+	}
+	absPath, err := filepath.Abs(dllPath)
+	if err != nil {
+		return err
+	}
+
+	rimePluginDLLsMu.Lock()
+	defer rimePluginDLLsMu.Unlock()
+
+	if _, ok := rimePluginDLLs[absPath]; ok {
+		return nil
+	}
+	dll, err := syscall.LoadDLL(absPath)
+	if err != nil {
+		return err
+	}
+	rimePluginDLLs[absPath] = dll
+	return nil
+}
+
+func setRimeExtraModules(modules []string) {
+	rimeModulesMu.Lock()
+	defer rimeModulesMu.Unlock()
+	rimeExtraModules = append([]string(nil), modules...)
+}
+
+func currentRimeModules() []string {
+	rimeModulesMu.Lock()
+	defer rimeModulesMu.Unlock()
+
+	modules := []string{"default"}
+	modules = append(modules, rimeExtraModules...)
+	return modules
+}
+
+func loadBundledRimePlugins(rimeDLLPath string) []string {
+	baseDir := filepath.Dir(rimeDLLPath)
+	modules := make([]string, 0, len(bundledRimePluginSpecs))
+	for _, spec := range bundledRimePluginSpecs {
+		pluginPath := filepath.Join(baseDir, spec.relativePath)
+		if _, err := os.Stat(pluginPath); err != nil {
+			if os.IsNotExist(err) {
+				debugLogf("RIME 插件 DLL 不存在，跳过 module=%q path=%q", spec.moduleName, pluginPath)
+				continue
+			}
+			log.Printf("检查 RIME 插件 DLL 失败 module=%s path=%s err=%v", spec.moduleName, pluginPath, err)
+			continue
+		}
+		if err := loadRimePluginDLL(pluginPath); err != nil {
+			log.Printf("加载 RIME 插件 DLL 失败 module=%s path=%s err=%v", spec.moduleName, pluginPath, err)
+			continue
+		}
+		debugLogf("RIME 插件 DLL 加载成功 module=%q path=%q", spec.moduleName, pluginPath)
+		modules = append(modules, spec.moduleName)
+	}
+	return modules
+}
+
 func utf8Ptr(s string) *byte {
 	if s == "" {
 		return nil
 	}
 	ptr, _ := syscall.BytePtrFromString(s)
 	return ptr
+}
+
+func newRimeTraitsBridge(traits RimeTraits) *rimeTraitsBridge {
+	bridge := &rimeTraitsBridge{
+		traits: rimeTraitsC{
+			DataSize:             int32(unsafe.Sizeof(rimeTraitsC{})) - 4,
+			SharedDataDir:        utf8Ptr(traits.SharedDataDir),
+			UserDataDir:          utf8Ptr(traits.UserDataDir),
+			DistributionName:     utf8Ptr(traits.DistributionName),
+			DistributionCodeName: utf8Ptr(traits.DistributionCodeName),
+			DistributionVersion:  utf8Ptr(traits.DistributionVersion),
+			AppName:              utf8Ptr(traits.AppName),
+			MinLogLevel:          int32(traits.MinLogLevel),
+			LogDir:               utf8Ptr(traits.LogDir),
+			PrebuiltDataDir:      utf8Ptr(traits.PrebuiltDataDir),
+			StagingDir:           utf8Ptr(traits.StagingDir),
+		},
+	}
+
+	moduleNames := make([]string, 0, len(traits.Modules))
+	seen := make(map[string]struct{}, len(traits.Modules))
+	for _, module := range traits.Modules {
+		module = strings.TrimSpace(module)
+		if module == "" {
+			continue
+		}
+		if _, ok := seen[module]; ok {
+			continue
+		}
+		seen[module] = struct{}{}
+		moduleNames = append(moduleNames, module)
+	}
+
+	if len(moduleNames) == 0 {
+		return bridge
+	}
+
+	bridge.moduleBytes = make([][]byte, 0, len(moduleNames))
+	bridge.modulePtrs = make([]*byte, 0, len(moduleNames)+1)
+	for _, module := range moduleNames {
+		bytes := append([]byte(module), 0)
+		bridge.moduleBytes = append(bridge.moduleBytes, bytes)
+		bridge.modulePtrs = append(bridge.modulePtrs, &bridge.moduleBytes[len(bridge.moduleBytes)-1][0])
+	}
+	bridge.modulePtrs = append(bridge.modulePtrs, nil)
+	bridge.traits.Modules = (**byte)(unsafe.Pointer(&bridge.modulePtrs[0]))
+	return bridge
 }
 
 func cString(ptr *byte) string {
@@ -348,22 +481,9 @@ func cStringFromBytes(buf []byte) string {
 }
 
 func Init(traits RimeTraits) bool {
-	cTraits := rimeTraitsC{
-		DataSize:             int32(unsafe.Sizeof(rimeTraitsC{})) - 4,
-		SharedDataDir:        utf8Ptr(traits.SharedDataDir),
-		UserDataDir:          utf8Ptr(traits.UserDataDir),
-		DistributionName:     utf8Ptr(traits.DistributionName),
-		DistributionCodeName: utf8Ptr(traits.DistributionCodeName),
-		DistributionVersion:  utf8Ptr(traits.DistributionVersion),
-		AppName:              utf8Ptr(traits.AppName),
-		MinLogLevel:          int32(traits.MinLogLevel),
-		LogDir:               utf8Ptr(traits.LogDir),
-		PrebuiltDataDir:      utf8Ptr(traits.PrebuiltDataDir),
-		StagingDir:           utf8Ptr(traits.StagingDir),
-	}
-
-	r1, _, _ := rimeProcs.setup.Call(uintptr(unsafe.Pointer(&cTraits)))
-	runtime.KeepAlive(cTraits)
+	bridge := newRimeTraitsBridge(traits)
+	r1, _, _ := rimeProcs.setup.Call(uintptr(unsafe.Pointer(&bridge.traits)))
+	runtime.KeepAlive(bridge)
 	return boolResult(r1) || true
 }
 
@@ -817,6 +937,7 @@ func initializeEngine(traits RimeTraits, fullcheck bool) bool {
 	}()
 
 	debugLogf("RIME initializeEngine 开始 fullcheck=%t sharedDir=%q userDir=%q prebuiltDir=%q stagingDir=%q", fullcheck, traits.SharedDataDir, traits.UserDataDir, traits.PrebuiltDataDir, traits.StagingDir)
+	debugLogf("RIME initializeEngine modules=%v", traits.Modules)
 	setupStart := time.Now()
 	if !Init(traits) {
 		log.Println("RIME setup 失败")
@@ -824,8 +945,10 @@ func initializeEngine(traits RimeTraits, fullcheck bool) bool {
 	}
 	debugLogf("RIME initializeEngine setup 完成 elapsed=%s", time.Since(setupStart))
 
+	bridge := newRimeTraitsBridge(traits)
 	initializeStart := time.Now()
-	rimeProcs.initialize.Call(0)
+	rimeProcs.initialize.Call(uintptr(unsafe.Pointer(&bridge.traits)))
+	runtime.KeepAlive(bridge)
 	debugLogf("RIME initializeEngine initialize 完成 elapsed=%s", time.Since(initializeStart))
 	var fullcheckArg uintptr
 	if fullcheck {
@@ -869,6 +992,9 @@ func RimeInit(datadir, userdir, appname, appver string, fullcheck bool) bool {
 		return false
 	}
 	debugLogf("RIME RimeInit 加载DLL完成 elapsed=%s dllPath=%q", time.Since(dllStart), dllPath)
+	pluginModules := loadBundledRimePlugins(dllPath)
+	setRimeExtraModules(pluginModules)
+	debugLogf("RIME RimeInit 可用插件模块=%v", pluginModules)
 
 	logDir := rimeLogDir()
 	if logDir != "" {
@@ -888,6 +1014,7 @@ func RimeInit(datadir, userdir, appname, appver string, fullcheck bool) bool {
 		LogDir:               logDir,
 		PrebuiltDataDir:      filepath.Join(datadir, "build"),
 		StagingDir:           filepath.Join(userdir, "build"),
+		Modules:              currentRimeModules(),
 	}
 	engineStart := time.Now()
 	if !initializeEngine(traits, fullcheck) {
@@ -917,6 +1044,7 @@ func RimeRedeploy(datadir, userdir, appname, appver string) bool {
 		LogDir:               logDir,
 		PrebuiltDataDir:      filepath.Join(datadir, "build"),
 		StagingDir:           filepath.Join(userdir, "build"),
+		Modules:              currentRimeModules(),
 	}
 
 	Finalize()
