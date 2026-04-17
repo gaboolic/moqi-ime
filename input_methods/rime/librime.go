@@ -218,6 +218,12 @@ var bundledRimePluginSpecs = []rimePluginSpec{
 	},
 }
 
+var builtinRimeModules = []string{
+	"default",
+	"lua",
+	"predict",
+}
+
 func loadRimeDLL(dllPath string) error {
 	rimeDLLMu.Lock()
 	defer rimeDLLMu.Unlock()
@@ -362,8 +368,30 @@ func currentRimeModules() []string {
 	rimeModulesMu.Lock()
 	defer rimeModulesMu.Unlock()
 
-	modules := []string{"default"}
-	modules = append(modules, rimeExtraModules...)
+	modules := make([]string, 0, len(builtinRimeModules)+len(rimeExtraModules))
+	seen := make(map[string]struct{}, len(builtinRimeModules)+len(rimeExtraModules))
+	for _, module := range builtinRimeModules {
+		module = strings.TrimSpace(module)
+		if module == "" {
+			continue
+		}
+		if _, ok := seen[module]; ok {
+			continue
+		}
+		seen[module] = struct{}{}
+		modules = append(modules, module)
+	}
+	for _, module := range rimeExtraModules {
+		module = strings.TrimSpace(module)
+		if module == "" {
+			continue
+		}
+		if _, ok := seen[module]; ok {
+			continue
+		}
+		seen[module] = struct{}{}
+		modules = append(modules, module)
+	}
 	return modules
 }
 
