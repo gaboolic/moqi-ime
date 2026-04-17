@@ -536,7 +536,7 @@ try {
         throw "BERT grammar asset directory is missing: `"$BertGrammarSourceDir`""
     }
     $packageBertDir = Join-Path $PackageRimeDir "bert"
-    Write-Host ("[INFO] BERT runtime assets packaged in `"{0}`" regardless of enabled flag" -f $packageBertDir)
+    Write-Host ("[INFO] BERT runtime assets staged in `"{0}`"; model path and enablement come from user Rime config" -f $packageBertDir)
     foreach ($assetName in @("model.onnx", "model.onnx.data", "vocab.txt", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json")) {
         $packagedAsset = Join-Path $PackageRimeDir ("bert\" + $assetName)
         if (Test-Path -LiteralPath $packagedAsset) {
@@ -573,7 +573,7 @@ try {
 
     $packageBertGrammarDataDir = Join-Path $PackageRimeDataDir "bert_grammar"
     Copy-DirectoryContents -Source $BertGrammarSourceDir -Destination $packageBertGrammarDataDir
-    Write-Host "[INFO] Copied BERT grammar shared data assets"
+    Write-Host "[INFO] Copied BERT grammar shared data assets (users must reference them from their own Rime config if desired)"
 
     Write-Step -Title "Step 7: Generate backends.json snippet"
     @(
@@ -605,5 +605,5 @@ Write-Host "3. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\*\ime
 Write-Host "4. Re-register both MoqiTextService.dll files after copying."
 Write-Host "5. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\rime contains rime.dll."
 Write-Host "6. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\rime\rime-plugins contains rime-bert-grammar.dll, onnxruntime.dll, and any companion ONNX Runtime DLLs."
-Write-Host "7. Place BERT grammar model assets under C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\rime\data\bert_grammar."
+Write-Host "7. If you want to use BERT grammar, configure model and vocab paths in your own Rime config; packaged shared assets are under C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\rime\data\bert_grammar."
 Write-Host "8. Start or restart MoqiLauncher.exe after install."
