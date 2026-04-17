@@ -325,22 +325,6 @@ function Prepare-RimeData {
     Write-Host "[INFO] Packaged Rime shared data prepared at `"$PackageRimeDataDir`""
 }
 
-function Write-BertGrammarDefaultConfig {
-    param([string] $PackageRimeDataDir)
-
-    $defaultCustomPath = Join-Path $PackageRimeDataDir "default.custom.yaml"
-    $content = @"
-patch:
-  bert_grammar:
-    model_path: bert_grammar/bert-base-chinese.onnx
-    vocab_path: bert_grammar/vocab.txt
-"@
-
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($defaultCustomPath, $content.Trim() + "`r`n", $utf8NoBom)
-    Write-Host "[INFO] Wrote packaged BERT grammar config to `"$defaultCustomPath`""
-}
-
 function Write-ServerVersionInfo {
     param(
         [string] $VersionInfoPath,
@@ -547,7 +531,6 @@ try {
 
     Write-Step -Title "Step 6: Prepare packaged Rime shared data"
     Prepare-RimeData -RimeDataDir $RimeDataDir -PackageRimeDataDir $PackageRimeDataDir
-    Write-BertGrammarDefaultConfig -PackageRimeDataDir $PackageRimeDataDir
 
     if (-not (Test-Path -LiteralPath $BertGrammarSourceDir)) {
         throw "BERT grammar asset directory is missing: `"$BertGrammarSourceDir`""
