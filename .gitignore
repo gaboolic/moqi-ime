@@ -4,7 +4,7 @@
 # Binaries for programs and plugins
 *.exe
 *.exe~
-*.dll
+input_methods/fcitx5/*.dll
 *.so
 *.dylib
 
