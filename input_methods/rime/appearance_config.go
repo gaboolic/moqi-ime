@@ -14,7 +14,9 @@ const rimeDefaultCustomConfigFileName = "default.custom.yaml"
 
 type appearanceConfig struct {
 	CandidateTheme              *string         `json:"candidate_theme,omitempty"`
+	FontFace                    *string         `json:"font_face,omitempty"`
 	FontPoint                   *int            `json:"font_point,omitempty"`
+	CandidateCommentFontFace    *string         `json:"candidate_comment_font_face,omitempty"`
 	CandidateCommentFontPoint   *int            `json:"candidate_comment_font_point,omitempty"`
 	InlinePreedit               *bool           `json:"inline_preedit,omitempty"`
 	CandidatePerRow             *int            `json:"candidate_per_row,omitempty"`
@@ -23,6 +25,8 @@ type appearanceConfig struct {
 	CandidateHighlightColor     *string         `json:"candidate_highlight_color,omitempty"`
 	CandidateTextColor          *string         `json:"candidate_text_color,omitempty"`
 	CandidateHighlightTextColor *string         `json:"candidate_highlight_text_color,omitempty"`
+	CandidateCommentColor       *string         `json:"candidate_comment_color,omitempty"`
+	CandidateCommentHighlightColor *string      `json:"candidate_comment_highlight_color,omitempty"`
 	InputStateShared            *bool           `json:"input_state_shared,omitempty"`
 	SharedOptions               map[string]bool `json:"shared_options,omitempty"`
 	SharedAsciiMode             *bool           `json:"shared_ascii_mode,omitempty"`
@@ -66,7 +70,9 @@ func cloneBoolPtr(value *bool) *bool {
 func cloneAppearanceConfig(cfg appearanceConfig) appearanceConfig {
 	return appearanceConfig{
 		CandidateTheme:              cloneStringPtr(cfg.CandidateTheme),
+		FontFace:                    cloneStringPtr(cfg.FontFace),
 		FontPoint:                   cloneIntPtr(cfg.FontPoint),
+		CandidateCommentFontFace:    cloneStringPtr(cfg.CandidateCommentFontFace),
 		CandidateCommentFontPoint:   cloneIntPtr(cfg.CandidateCommentFontPoint),
 		InlinePreedit:               cloneBoolPtr(cfg.InlinePreedit),
 		CandidatePerRow:             cloneIntPtr(cfg.CandidatePerRow),
@@ -75,6 +81,8 @@ func cloneAppearanceConfig(cfg appearanceConfig) appearanceConfig {
 		CandidateHighlightColor:     cloneStringPtr(cfg.CandidateHighlightColor),
 		CandidateTextColor:          cloneStringPtr(cfg.CandidateTextColor),
 		CandidateHighlightTextColor: cloneStringPtr(cfg.CandidateHighlightTextColor),
+		CandidateCommentColor:       cloneStringPtr(cfg.CandidateCommentColor),
+		CandidateCommentHighlightColor: cloneStringPtr(cfg.CandidateCommentHighlightColor),
 		InputStateShared:            cloneBoolPtr(cfg.InputStateShared),
 		SharedOptions:               cloneBoolMap(cfg.SharedOptions),
 		SharedAsciiMode:             cloneBoolPtr(cfg.SharedAsciiMode),
@@ -130,6 +138,8 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateHighlightColor = "#c6ddf9"
 		ime.style.CandidateTextColor = "#000000"
 		ime.style.CandidateHighlightTextColor = "#000000"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 		return true
 	case "theme2":
 		ime.style.CandidateTheme = "theme2"
@@ -137,6 +147,8 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateHighlightColor = "#ff9000"
 		ime.style.CandidateTextColor = "#ffffff"
 		ime.style.CandidateHighlightTextColor = "#000000"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 		return true
 	case "moqi":
 		ime.style.CandidateTheme = "moqi"
@@ -144,6 +156,8 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateHighlightColor = "#ffffff"
 		ime.style.CandidateTextColor = "#ffffff"
 		ime.style.CandidateHighlightTextColor = "#000000"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 		return true
 	case "purple":
 		ime.style.CandidateTheme = "purple"
@@ -151,6 +165,8 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateHighlightColor = "#8b5cf6"
 		ime.style.CandidateTextColor = "#4c1d95"
 		ime.style.CandidateHighlightTextColor = "#ffffff"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 		return true
 	case "wallgray":
 		ime.style.CandidateTheme = "wallgray"
@@ -158,6 +174,8 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateHighlightColor = "#94a3b8"
 		ime.style.CandidateTextColor = "#44403c"
 		ime.style.CandidateHighlightTextColor = "#ffffff"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 		return true
 	case "orange":
 		ime.style.CandidateTheme = "orange"
@@ -165,6 +183,8 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateHighlightColor = "#ea580c"
 		ime.style.CandidateTextColor = "#7c2d12"
 		ime.style.CandidateHighlightTextColor = "#ffffff"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 		return true
 	case "redplum":
 		ime.style.CandidateTheme = "redplum"
@@ -172,6 +192,8 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateHighlightColor = "#6f1028"
 		ime.style.CandidateTextColor = "#3f1d24"
 		ime.style.CandidateHighlightTextColor = "#fff7f5"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 		return true
 	case "shacheng":
 		ime.style.CandidateTheme = "shacheng"
@@ -179,6 +201,8 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateHighlightColor = "#d4af5a"
 		ime.style.CandidateTextColor = "#f6dda0"
 		ime.style.CandidateHighlightTextColor = "#2b1d14"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 		return true
 	case "globe":
 		ime.style.CandidateTheme = "globe"
@@ -186,6 +210,8 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateHighlightColor = "#f4c542"
 		ime.style.CandidateTextColor = "#083344"
 		ime.style.CandidateHighlightTextColor = "#1f2937"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 		return true
 	case "soymilk":
 		ime.style.CandidateTheme = "soymilk"
@@ -193,6 +219,8 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateHighlightColor = "#a3ad6a"
 		ime.style.CandidateTextColor = "#4b4b43"
 		ime.style.CandidateHighlightTextColor = "#1f2917"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 		return true
 	case "chrysanthemum":
 		ime.style.CandidateTheme = "chrysanthemum"
@@ -200,6 +228,8 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateHighlightColor = "#d6a823"
 		ime.style.CandidateTextColor = "#5b4a1d"
 		ime.style.CandidateHighlightTextColor = "#fffdf5"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 		return true
 	case "qinhuangdao":
 		ime.style.CandidateTheme = "qinhuangdao"
@@ -207,6 +237,8 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateHighlightColor = "#5fa7c7"
 		ime.style.CandidateTextColor = "#1f4f68"
 		ime.style.CandidateHighlightTextColor = "#f8fdff"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 		return true
 	case "bubblegum":
 		ime.style.CandidateTheme = "bubblegum"
@@ -214,6 +246,17 @@ func (ime *IME) applyThemePreset(theme string) bool {
 		ime.style.CandidateHighlightColor = "#7ee7d8"
 		ime.style.CandidateTextColor = "#7a2e67"
 		ime.style.CandidateHighlightTextColor = "#16313a"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
+		return true
+	case "pepsi":
+		ime.style.CandidateTheme = "pepsi"
+		ime.style.CandidateBackgroundColor = "#1d4ed8"
+		ime.style.CandidateHighlightColor = "#f8fafc"
+		ime.style.CandidateTextColor = "#ffffff"
+		ime.style.CandidateHighlightTextColor = "#b91c1c"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 		return true
 	default:
 		return false
@@ -222,7 +265,7 @@ func (ime *IME) applyThemePreset(theme string) bool {
 
 func isBuiltinTheme(theme string) bool {
 	switch strings.ToLower(strings.TrimSpace(theme)) {
-	case "default", "theme2", "moqi", "purple", "wallgray", "orange", "redplum", "shacheng", "globe", "soymilk", "chrysanthemum", "qinhuangdao", "bubblegum":
+	case "default", "theme2", "moqi", "purple", "wallgray", "orange", "redplum", "shacheng", "globe", "soymilk", "chrysanthemum", "qinhuangdao", "bubblegum", "pepsi":
 		return true
 	default:
 		return false
@@ -253,8 +296,14 @@ func (ime *IME) applyAppearanceConfig(cfg appearanceConfig) {
 			ime.style.CandidateTheme = themeName
 		}
 	}
+	if cfg.FontFace != nil && strings.TrimSpace(*cfg.FontFace) != "" {
+		ime.style.FontFace = strings.TrimSpace(*cfg.FontFace)
+	}
 	if cfg.FontPoint != nil && *cfg.FontPoint > 0 {
 		ime.style.FontPoint = *cfg.FontPoint
+	}
+	if cfg.CandidateCommentFontFace != nil && strings.TrimSpace(*cfg.CandidateCommentFontFace) != "" {
+		ime.style.CandidateCommentFontFace = strings.TrimSpace(*cfg.CandidateCommentFontFace)
 	}
 	if cfg.CandidateCommentFontPoint != nil && *cfg.CandidateCommentFontPoint > 0 {
 		ime.style.CandidateCommentFontPoint = *cfg.CandidateCommentFontPoint
@@ -288,6 +337,18 @@ func (ime *IME) applyAppearanceConfig(cfg appearanceConfig) {
 	if allowCustomColors && cfg.CandidateHighlightTextColor != nil && normalizeColor(*cfg.CandidateHighlightTextColor) != "" {
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateHighlightTextColor = normalizeColor(*cfg.CandidateHighlightTextColor)
+	}
+	if allowCustomColors {
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
+	}
+	if allowCustomColors && cfg.CandidateCommentColor != nil && normalizeColor(*cfg.CandidateCommentColor) != "" {
+		ime.style.CandidateTheme = "custom"
+		ime.style.CandidateCommentColor = normalizeColor(*cfg.CandidateCommentColor)
+	}
+	if allowCustomColors && cfg.CandidateCommentHighlightColor != nil && normalizeColor(*cfg.CandidateCommentHighlightColor) != "" {
+		ime.style.CandidateTheme = "custom"
+		ime.style.CandidateCommentHighlightColor = normalizeColor(*cfg.CandidateCommentHighlightColor)
 	}
 	if cfg.InputStateShared != nil {
 		ime.inputStateShared = *cfg.InputStateShared
@@ -374,14 +435,18 @@ func (ime *IME) saveAppearancePrefsWithReason(reason string) {
 		return
 	}
 	theme := ime.style.CandidateTheme
+	fontFace := ime.style.FontFace
 	fontPoint := ime.style.FontPoint
+	commentFontFace := ime.style.CandidateCommentFontFace
 	commentFontPoint := ime.style.CandidateCommentFontPoint
 	inlinePreedit := ime.inlinePreeditEnabled()
 	candidatePerRow := ime.style.CandidatePerRow
 	candidateCount := ime.style.CandidateCount
 	cfg := appearanceConfig{
 		CandidateTheme:            &theme,
+		FontFace:                  &fontFace,
 		FontPoint:                 &fontPoint,
+		CandidateCommentFontFace:  &commentFontFace,
 		CandidateCommentFontPoint: &commentFontPoint,
 		InlinePreedit:             &inlinePreedit,
 		CandidatePerRow:           &candidatePerRow,
@@ -398,10 +463,14 @@ func (ime *IME) saveAppearancePrefsWithReason(reason string) {
 		highlightColor := ime.style.CandidateHighlightColor
 		textColor := ime.style.CandidateTextColor
 		highlightTextColor := ime.style.CandidateHighlightTextColor
+		commentColor := ime.style.CandidateCommentColor
+		commentHighlightColor := ime.style.CandidateCommentHighlightColor
 		cfg.CandidateBackgroundColor = &backgroundColor
 		cfg.CandidateHighlightColor = &highlightColor
 		cfg.CandidateTextColor = &textColor
 		cfg.CandidateHighlightTextColor = &highlightTextColor
+		cfg.CandidateCommentColor = &commentColor
+		cfg.CandidateCommentHighlightColor = &commentHighlightColor
 	}
 	if ime.inputStateShared {
 		cfg.SharedOptions = cloneBoolMap(ime.sharedOptions)
@@ -464,6 +533,7 @@ func (ime *IME) customizeUIMap() map[string]interface{} {
 	return map[string]interface{}{
 		"candFontName":           ime.style.FontFace,
 		"candFontSize":           ime.style.FontPoint,
+		"candCommentFontName":    ime.style.CandidateCommentFontFace,
 		"candCommentFontSize":    ime.style.CandidateCommentFontPoint,
 		"candPerRow":             ime.effectiveCandidatePerRow(),
 		"candUseCursor":          ime.style.CandidateUseCursor,
@@ -471,6 +541,8 @@ func (ime *IME) customizeUIMap() map[string]interface{} {
 		"candHighlightColor":     normalizeColor(ime.style.CandidateHighlightColor),
 		"candTextColor":          normalizeColor(ime.style.CandidateTextColor),
 		"candHighlightTextColor": normalizeColor(ime.style.CandidateHighlightTextColor),
+		"candCommentColor":       normalizeColor(ime.style.CandidateCommentColor),
+		"candCommentHighlightColor": normalizeColor(ime.style.CandidateCommentHighlightColor),
 		"inlinePreedit":          ime.inlinePreeditEnabled(),
 		"autoPairQuotes":         ime.autoPairQuotes,
 		"semicolonSelectSecond":  ime.semicolonSelectSecond,
@@ -566,6 +638,14 @@ func (ime *IME) applyAppearanceCommand(commandID int) bool {
 		ime.style.FontPoint = 20
 	case ID_APPEARANCE_FONT_22:
 		ime.style.FontPoint = 22
+	case ID_APPEARANCE_FONT_FAMILY_SEGOE_UI:
+		ime.style.FontFace = "Segoe UI"
+	case ID_APPEARANCE_FONT_FAMILY_YAHEI_UI:
+		ime.style.FontFace = "Microsoft YaHei UI"
+	case ID_APPEARANCE_FONT_FAMILY_DENGXIAN:
+		ime.style.FontFace = "DengXian"
+	case ID_APPEARANCE_FONT_FAMILY_SIMSUN:
+		ime.style.FontFace = "SimSun"
 	case ID_APPEARANCE_COMMENT_FONT_14:
 		ime.style.CandidateCommentFontPoint = 14
 	case ID_APPEARANCE_COMMENT_FONT_16:
@@ -576,6 +656,14 @@ func (ime *IME) applyAppearanceCommand(commandID int) bool {
 		ime.style.CandidateCommentFontPoint = 20
 	case ID_APPEARANCE_COMMENT_FONT_22:
 		ime.style.CandidateCommentFontPoint = 22
+	case ID_APPEARANCE_COMMENT_FONT_FAMILY_CONSOLAS:
+		ime.style.CandidateCommentFontFace = "Consolas"
+	case ID_APPEARANCE_COMMENT_FONT_FAMILY_YAHEI_UI:
+		ime.style.CandidateCommentFontFace = "Microsoft YaHei UI"
+	case ID_APPEARANCE_COMMENT_FONT_FAMILY_DENGXIAN:
+		ime.style.CandidateCommentFontFace = "DengXian"
+	case ID_APPEARANCE_COMMENT_FONT_FAMILY_SIMSUN:
+		ime.style.CandidateCommentFontFace = "SimSun"
 	case ID_APPEARANCE_BG_WHITE:
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateBackgroundColor = "#ffffff"
@@ -597,21 +685,27 @@ func (ime *IME) applyAppearanceCommand(commandID int) bool {
 	case ID_APPEARANCE_TEXT_BLACK:
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateTextColor = "#000000"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
 	case ID_APPEARANCE_TEXT_DARKGRAY:
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateTextColor = "#333333"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
 	case ID_APPEARANCE_TEXT_BLUE:
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateTextColor = "#1d4ed8"
+		ime.style.CandidateCommentColor = ime.style.CandidateTextColor
 	case ID_APPEARANCE_HLTEXT_BLACK:
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateHighlightTextColor = "#000000"
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 	case ID_APPEARANCE_HLTEXT_WHITE:
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateHighlightTextColor = "#ffffff"
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 	case ID_APPEARANCE_HLTEXT_BLUE:
 		ime.style.CandidateTheme = "custom"
 		ime.style.CandidateHighlightTextColor = "#1d4ed8"
+		ime.style.CandidateCommentHighlightColor = ime.style.CandidateHighlightTextColor
 	case ID_APPEARANCE_THEME_DEFAULT:
 		ime.applyThemePreset("default")
 	case ID_APPEARANCE_THEME_2:
@@ -638,6 +732,8 @@ func (ime *IME) applyAppearanceCommand(commandID int) bool {
 		ime.applyThemePreset("qinhuangdao")
 	case ID_APPEARANCE_THEME_BUBBLEGUM:
 		ime.applyThemePreset("bubblegum")
+	case ID_APPEARANCE_THEME_PEPSI:
+		ime.applyThemePreset("pepsi")
 	default:
 		return false
 	}

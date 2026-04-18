@@ -403,6 +403,9 @@ func customizeUiToProto(data map[string]interface{}) *moqipb.CustomizeUi {
 	if value, ok := data["candFontName"].(string); ok {
 		ui.CandFontName = stringPtrOrNil(value)
 	}
+	if value, ok := data["candCommentFontName"].(string); ok {
+		ui.CandCommentFontName = stringPtrOrNil(value)
+	}
 	if value, ok := numericToUint32(data["candFontSize"]); ok {
 		ui.CandFontSize = uint32Ptr(value)
 	}
@@ -426,6 +429,12 @@ func customizeUiToProto(data map[string]interface{}) *moqipb.CustomizeUi {
 	}
 	if value, ok := data["candHighlightTextColor"].(string); ok {
 		ui.CandHighlightTextColor = stringPtrOrNil(value)
+	}
+	if value, ok := data["candCommentColor"].(string); ok {
+		ui.CandCommentColor = stringPtrOrNil(value)
+	}
+	if value, ok := data["candCommentHighlightColor"].(string); ok {
+		ui.CandCommentHighlightColor = stringPtrOrNil(value)
 	}
 	if value, ok := numericToUint32(data["candCommentFontSize"]); ok {
 		ui.CandCommentFontSize = uint32Ptr(value)

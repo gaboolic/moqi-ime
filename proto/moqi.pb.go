@@ -602,21 +602,24 @@ func (x *CandidateEntry) GetComment() string {
 }
 
 type CustomizeUi struct {
-	state                  protoimpl.MessageState `protogen:"open.v1"`
-	CandFontName           *string                `protobuf:"bytes,1,opt,name=cand_font_name,json=candFontName,proto3,oneof" json:"cand_font_name,omitempty"`
-	CandFontSize           *uint32                `protobuf:"varint,2,opt,name=cand_font_size,json=candFontSize,proto3,oneof" json:"cand_font_size,omitempty"`
-	CandPerRow             *uint32                `protobuf:"varint,3,opt,name=cand_per_row,json=candPerRow,proto3,oneof" json:"cand_per_row,omitempty"`
-	CandUseCursor          *bool                  `protobuf:"varint,4,opt,name=cand_use_cursor,json=candUseCursor,proto3,oneof" json:"cand_use_cursor,omitempty"`
-	InlinePreedit          *bool                  `protobuf:"varint,5,opt,name=inline_preedit,json=inlinePreedit,proto3,oneof" json:"inline_preedit,omitempty"`
-	CandBackgroundColor    *string                `protobuf:"bytes,6,opt,name=cand_background_color,json=candBackgroundColor,proto3,oneof" json:"cand_background_color,omitempty"`
-	CandHighlightColor     *string                `protobuf:"bytes,7,opt,name=cand_highlight_color,json=candHighlightColor,proto3,oneof" json:"cand_highlight_color,omitempty"`
-	CandTextColor          *string                `protobuf:"bytes,8,opt,name=cand_text_color,json=candTextColor,proto3,oneof" json:"cand_text_color,omitempty"`
-	CandHighlightTextColor *string                `protobuf:"bytes,9,opt,name=cand_highlight_text_color,json=candHighlightTextColor,proto3,oneof" json:"cand_highlight_text_color,omitempty"`
-	CandCommentFontSize    *uint32                `protobuf:"varint,10,opt,name=cand_comment_font_size,json=candCommentFontSize,proto3,oneof" json:"cand_comment_font_size,omitempty"`
-	AutoPairQuotes         *bool                  `protobuf:"varint,11,opt,name=auto_pair_quotes,json=autoPairQuotes,proto3,oneof" json:"auto_pair_quotes,omitempty"`
-	SemicolonSelectSecond  *bool                  `protobuf:"varint,12,opt,name=semicolon_select_second,json=semicolonSelectSecond,proto3,oneof" json:"semicolon_select_second,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"open.v1"`
+	CandFontName              *string                `protobuf:"bytes,1,opt,name=cand_font_name,json=candFontName,proto3,oneof" json:"cand_font_name,omitempty"`
+	CandFontSize              *uint32                `protobuf:"varint,2,opt,name=cand_font_size,json=candFontSize,proto3,oneof" json:"cand_font_size,omitempty"`
+	CandPerRow                *uint32                `protobuf:"varint,3,opt,name=cand_per_row,json=candPerRow,proto3,oneof" json:"cand_per_row,omitempty"`
+	CandUseCursor             *bool                  `protobuf:"varint,4,opt,name=cand_use_cursor,json=candUseCursor,proto3,oneof" json:"cand_use_cursor,omitempty"`
+	InlinePreedit             *bool                  `protobuf:"varint,5,opt,name=inline_preedit,json=inlinePreedit,proto3,oneof" json:"inline_preedit,omitempty"`
+	CandBackgroundColor       *string                `protobuf:"bytes,6,opt,name=cand_background_color,json=candBackgroundColor,proto3,oneof" json:"cand_background_color,omitempty"`
+	CandHighlightColor        *string                `protobuf:"bytes,7,opt,name=cand_highlight_color,json=candHighlightColor,proto3,oneof" json:"cand_highlight_color,omitempty"`
+	CandTextColor             *string                `protobuf:"bytes,8,opt,name=cand_text_color,json=candTextColor,proto3,oneof" json:"cand_text_color,omitempty"`
+	CandHighlightTextColor    *string                `protobuf:"bytes,9,opt,name=cand_highlight_text_color,json=candHighlightTextColor,proto3,oneof" json:"cand_highlight_text_color,omitempty"`
+	CandCommentFontSize       *uint32                `protobuf:"varint,10,opt,name=cand_comment_font_size,json=candCommentFontSize,proto3,oneof" json:"cand_comment_font_size,omitempty"`
+	AutoPairQuotes            *bool                  `protobuf:"varint,11,opt,name=auto_pair_quotes,json=autoPairQuotes,proto3,oneof" json:"auto_pair_quotes,omitempty"`
+	SemicolonSelectSecond     *bool                  `protobuf:"varint,12,opt,name=semicolon_select_second,json=semicolonSelectSecond,proto3,oneof" json:"semicolon_select_second,omitempty"`
+	CandCommentFontName       *string                `protobuf:"bytes,13,opt,name=cand_comment_font_name,json=candCommentFontName,proto3,oneof" json:"cand_comment_font_name,omitempty"`
+	CandCommentColor          *string                `protobuf:"bytes,14,opt,name=cand_comment_color,json=candCommentColor,proto3,oneof" json:"cand_comment_color,omitempty"`
+	CandCommentHighlightColor *string                `protobuf:"bytes,15,opt,name=cand_comment_highlight_color,json=candCommentHighlightColor,proto3,oneof" json:"cand_comment_highlight_color,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *CustomizeUi) Reset() {
@@ -731,6 +734,27 @@ func (x *CustomizeUi) GetSemicolonSelectSecond() bool {
 		return *x.SemicolonSelectSecond
 	}
 	return false
+}
+
+func (x *CustomizeUi) GetCandCommentFontName() string {
+	if x != nil && x.CandCommentFontName != nil {
+		return *x.CandCommentFontName
+	}
+	return ""
+}
+
+func (x *CustomizeUi) GetCandCommentColor() string {
+	if x != nil && x.CandCommentColor != nil {
+		return *x.CandCommentColor
+	}
+	return ""
+}
+
+func (x *CustomizeUi) GetCandCommentHighlightColor() string {
+	if x != nil && x.CandCommentHighlightColor != nil {
+		return *x.CandCommentHighlightColor
+	}
+	return ""
 }
 
 type MessageWindow struct {
@@ -1357,7 +1381,7 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x04guid\x18\x03 \x01(\tR\x04guid\">\n" +
 	"\x0eCandidateEntry\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\x12\x18\n" +
-	"\acomment\x18\x02 \x01(\tR\acomment\"\xf5\x06\n" +
+	"\acomment\x18\x02 \x01(\tR\acomment\"\xfb\b\n" +
 	"\vCustomizeUi\x12)\n" +
 	"\x0ecand_font_name\x18\x01 \x01(\tH\x00R\fcandFontName\x88\x01\x01\x12)\n" +
 	"\x0ecand_font_size\x18\x02 \x01(\rH\x01R\fcandFontSize\x88\x01\x01\x12%\n" +
@@ -1373,7 +1397,10 @@ const file_proto_moqi_proto_rawDesc = "" +
 	" \x01(\rH\tR\x13candCommentFontSize\x88\x01\x01\x12-\n" +
 	"\x10auto_pair_quotes\x18\v \x01(\bH\n" +
 	"R\x0eautoPairQuotes\x88\x01\x01\x12;\n" +
-	"\x17semicolon_select_second\x18\f \x01(\bH\vR\x15semicolonSelectSecond\x88\x01\x01B\x11\n" +
+	"\x17semicolon_select_second\x18\f \x01(\bH\vR\x15semicolonSelectSecond\x88\x01\x01\x128\n" +
+	"\x16cand_comment_font_name\x18\r \x01(\tH\fR\x13candCommentFontName\x88\x01\x01\x121\n" +
+	"\x12cand_comment_color\x18\x0e \x01(\tH\rR\x10candCommentColor\x88\x01\x01\x12D\n" +
+	"\x1ccand_comment_highlight_color\x18\x0f \x01(\tH\x0eR\x19candCommentHighlightColor\x88\x01\x01B\x11\n" +
 	"\x0f_cand_font_nameB\x11\n" +
 	"\x0f_cand_font_sizeB\x0f\n" +
 	"\r_cand_per_rowB\x12\n" +
@@ -1385,7 +1412,10 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x1a_cand_highlight_text_colorB\x19\n" +
 	"\x17_cand_comment_font_sizeB\x13\n" +
 	"\x11_auto_pair_quotesB\x1a\n" +
-	"\x18_semicolon_select_second\"E\n" +
+	"\x18_semicolon_select_secondB\x19\n" +
+	"\x17_cand_comment_font_nameB\x15\n" +
+	"\x13_cand_comment_colorB\x1f\n" +
+	"\x1d_cand_comment_highlight_color\"E\n" +
 	"\rMessageWindow\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1a\n" +
 	"\bduration\x18\x02 \x01(\x05R\bduration\"{\n" +

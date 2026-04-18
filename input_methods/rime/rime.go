@@ -36,55 +36,64 @@ const (
 	ID_SWITCH_BASE        = 2000
 	ID_SCHEME_SET_BASE    = 3000
 
-	ID_APPEARANCE_INLINE_PREEDIT      = 100
-	ID_APPEARANCE_FONT_14             = 110
-	ID_APPEARANCE_FONT_16             = 111
-	ID_APPEARANCE_FONT_18             = 112
-	ID_APPEARANCE_FONT_20             = 113
-	ID_APPEARANCE_FONT_22             = 114
-	ID_APPEARANCE_COMMENT_FONT_14     = 115
-	ID_APPEARANCE_COMMENT_FONT_16     = 116
-	ID_APPEARANCE_COMMENT_FONT_18     = 117
-	ID_APPEARANCE_COMMENT_FONT_20     = 118
-	ID_APPEARANCE_COMMENT_FONT_22     = 119
-	ID_APPEARANCE_BG_WHITE            = 120
-	ID_APPEARANCE_BG_WARM             = 121
-	ID_APPEARANCE_BG_BLUE             = 122
-	ID_APPEARANCE_HL_BLUE             = 130
-	ID_APPEARANCE_HL_GRAY             = 131
-	ID_APPEARANCE_HL_GREEN            = 132
-	ID_APPEARANCE_TEXT_BLACK          = 140
-	ID_APPEARANCE_TEXT_DARKGRAY       = 141
-	ID_APPEARANCE_TEXT_BLUE           = 142
-	ID_APPEARANCE_HLTEXT_BLACK        = 145
-	ID_APPEARANCE_HLTEXT_WHITE        = 146
-	ID_APPEARANCE_HLTEXT_BLUE         = 147
-	ID_APPEARANCE_THEME_DEFAULT       = 150
-	ID_APPEARANCE_THEME_2             = 151
-	ID_APPEARANCE_THEME_MOQI          = 152
-	ID_APPEARANCE_THEME_PURPLE        = 153
-	ID_APPEARANCE_THEME_WALLGRAY      = 154
-	ID_APPEARANCE_THEME_ORANGE        = 155
-	ID_APPEARANCE_THEME_REDPLUM       = 156
-	ID_APPEARANCE_THEME_SHACHENG      = 157
-	ID_APPEARANCE_THEME_GLOBE         = 158
-	ID_APPEARANCE_THEME_SOYMILK       = 159
-	ID_APPEARANCE_THEME_CHRYSANTHEMUM = 160
-	ID_APPEARANCE_THEME_QINHUANGDAO   = 161
-	ID_APPEARANCE_THEME_BUBBLEGUM     = 162
-	ID_APPEARANCE_LAYOUT_VERTICAL     = 170
-	ID_APPEARANCE_LAYOUT_HORIZONTAL   = 171
-	ID_APPEARANCE_PER_ROW_3           = 180
-	ID_APPEARANCE_PER_ROW_5           = 181
-	ID_APPEARANCE_PER_ROW_7           = 182
-	ID_APPEARANCE_PER_ROW_9           = 183
-	ID_APPEARANCE_CAND_COUNT_3        = 190
-	ID_APPEARANCE_CAND_COUNT_5        = 191
-	ID_APPEARANCE_CAND_COUNT_7        = 192
-	ID_APPEARANCE_CAND_COUNT_9        = 193
-	ID_SHARED_INPUT_STATE             = 210
-	ID_INPUT_AUTO_PAIR_QUOTES         = 220
-	ID_INPUT_SEMICOLON_SELECT_SECOND  = 221
+	ID_APPEARANCE_INLINE_PREEDIT               = 100
+	ID_APPEARANCE_FONT_14                      = 110
+	ID_APPEARANCE_FONT_16                      = 111
+	ID_APPEARANCE_FONT_18                      = 112
+	ID_APPEARANCE_FONT_20                      = 113
+	ID_APPEARANCE_FONT_22                      = 114
+	ID_APPEARANCE_COMMENT_FONT_14              = 115
+	ID_APPEARANCE_COMMENT_FONT_16              = 116
+	ID_APPEARANCE_COMMENT_FONT_18              = 117
+	ID_APPEARANCE_COMMENT_FONT_20              = 118
+	ID_APPEARANCE_COMMENT_FONT_22              = 119
+	ID_APPEARANCE_BG_WHITE                     = 120
+	ID_APPEARANCE_BG_WARM                      = 121
+	ID_APPEARANCE_BG_BLUE                      = 122
+	ID_APPEARANCE_HL_BLUE                      = 130
+	ID_APPEARANCE_HL_GRAY                      = 131
+	ID_APPEARANCE_HL_GREEN                     = 132
+	ID_APPEARANCE_TEXT_BLACK                   = 140
+	ID_APPEARANCE_TEXT_DARKGRAY                = 141
+	ID_APPEARANCE_TEXT_BLUE                    = 142
+	ID_APPEARANCE_HLTEXT_BLACK                 = 145
+	ID_APPEARANCE_HLTEXT_WHITE                 = 146
+	ID_APPEARANCE_HLTEXT_BLUE                  = 147
+	ID_APPEARANCE_THEME_DEFAULT                = 150
+	ID_APPEARANCE_THEME_2                      = 151
+	ID_APPEARANCE_THEME_MOQI                   = 152
+	ID_APPEARANCE_THEME_PURPLE                 = 153
+	ID_APPEARANCE_THEME_WALLGRAY               = 154
+	ID_APPEARANCE_THEME_ORANGE                 = 155
+	ID_APPEARANCE_THEME_REDPLUM                = 156
+	ID_APPEARANCE_THEME_SHACHENG               = 157
+	ID_APPEARANCE_THEME_GLOBE                  = 158
+	ID_APPEARANCE_THEME_SOYMILK                = 159
+	ID_APPEARANCE_THEME_CHRYSANTHEMUM          = 160
+	ID_APPEARANCE_THEME_QINHUANGDAO            = 161
+	ID_APPEARANCE_THEME_BUBBLEGUM              = 162
+	ID_APPEARANCE_THEME_PEPSI                  = 163
+	ID_APPEARANCE_FONT_FAMILY_SEGOE_UI         = 194
+	ID_APPEARANCE_FONT_FAMILY_YAHEI_UI         = 195
+	ID_APPEARANCE_FONT_FAMILY_DENGXIAN         = 196
+	ID_APPEARANCE_FONT_FAMILY_SIMSUN           = 197
+	ID_APPEARANCE_COMMENT_FONT_FAMILY_CONSOLAS = 198
+	ID_APPEARANCE_COMMENT_FONT_FAMILY_YAHEI_UI = 199
+	ID_APPEARANCE_COMMENT_FONT_FAMILY_DENGXIAN = 200
+	ID_APPEARANCE_COMMENT_FONT_FAMILY_SIMSUN   = 201
+	ID_APPEARANCE_LAYOUT_VERTICAL              = 170
+	ID_APPEARANCE_LAYOUT_HORIZONTAL            = 171
+	ID_APPEARANCE_PER_ROW_3                    = 180
+	ID_APPEARANCE_PER_ROW_5                    = 181
+	ID_APPEARANCE_PER_ROW_7                    = 182
+	ID_APPEARANCE_PER_ROW_9                    = 183
+	ID_APPEARANCE_CAND_COUNT_3                 = 190
+	ID_APPEARANCE_CAND_COUNT_5                 = 191
+	ID_APPEARANCE_CAND_COUNT_7                 = 192
+	ID_APPEARANCE_CAND_COUNT_9                 = 193
+	ID_SHARED_INPUT_STATE                      = 210
+	ID_INPUT_AUTO_PAIR_QUOTES                  = 220
+	ID_INPUT_SEMICOLON_SELECT_SECOND           = 221
 
 	aiSelectKeys     = "123456789"
 	aiHotkeyKeyCode  = 0x47 // G
@@ -93,21 +102,24 @@ const (
 )
 
 type Style struct {
-	DisplayTrayIcon             bool
-	CandidateFormat             string
-	CandidatePerRow             int
-	CandidateCount              int
-	CandidateUseCursor          bool
-	CandidateTheme              string
-	CandidateBackgroundColor    string
-	CandidateHighlightColor     string
-	CandidateTextColor          string
-	CandidateHighlightTextColor string
-	FontFace                    string
-	FontPoint                   int
-	CandidateCommentFontPoint   int
-	InlinePreedit               string
-	SoftCursor                  bool
+	DisplayTrayIcon                bool
+	CandidateFormat                string
+	CandidatePerRow                int
+	CandidateCount                 int
+	CandidateUseCursor             bool
+	CandidateTheme                 string
+	CandidateBackgroundColor       string
+	CandidateHighlightColor        string
+	CandidateTextColor             string
+	CandidateHighlightTextColor    string
+	CandidateCommentColor          string
+	CandidateCommentHighlightColor string
+	FontFace                       string
+	FontPoint                      int
+	CandidateCommentFontFace       string
+	CandidateCommentFontPoint      int
+	InlinePreedit                  string
+	SoftCursor                     bool
 }
 
 type candidateItem struct {
@@ -205,21 +217,24 @@ type aiAsyncResult struct {
 
 func defaultStyle() Style {
 	return Style{
-		DisplayTrayIcon:             true,
-		CandidateFormat:             "{0} {1}",
-		CandidatePerRow:             1,
-		CandidateCount:              9,
-		CandidateUseCursor:          true,
-		CandidateTheme:              "default",
-		CandidateBackgroundColor:    "#ffffff",
-		CandidateHighlightColor:     "#c6ddf9",
-		CandidateTextColor:          "#000000",
-		CandidateHighlightTextColor: "#000000",
-		FontFace:                    "Segoe UI",
-		FontPoint:                   20,
-		CandidateCommentFontPoint:   18,
-		InlinePreedit:               "composition",
-		SoftCursor:                  false,
+		DisplayTrayIcon:                true,
+		CandidateFormat:                "{0} {1}",
+		CandidatePerRow:                1,
+		CandidateCount:                 9,
+		CandidateUseCursor:             true,
+		CandidateTheme:                 "default",
+		CandidateBackgroundColor:       "#ffffff",
+		CandidateHighlightColor:        "#c6ddf9",
+		CandidateTextColor:             "#000000",
+		CandidateHighlightTextColor:    "#000000",
+		CandidateCommentColor:          "#000000",
+		CandidateCommentHighlightColor: "#000000",
+		FontFace:                       "Segoe UI",
+		FontPoint:                      20,
+		CandidateCommentFontFace:       "Consolas",
+		CandidateCommentFontPoint:      18,
+		InlinePreedit:                  "composition",
+		SoftCursor:                     false,
 	}
 }
 
@@ -773,6 +788,10 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 			ime.fillResponseFromCurrentState(resp)
 			ime.updateLangStatus(req, resp)
 			resp.ReturnValue = 1
+			return resp
+		}
+		if ime.isKnownDynamicCommand(commandID) {
+			resp.ReturnValue = 0
 			return resp
 		}
 		log.Printf("未知命令: %d", commandID)
@@ -1557,8 +1576,7 @@ func (ime *IME) redeploy(req *imecore.Request, resp *imecore.Response) bool {
 		return false
 	}
 	if err := ime.reloadAIConfig(); err != nil {
-		log.Printf("重新加载 AI 配置失败: %v", err)
-		return false
+		log.Printf("重新加载 AI 配置失败，将继续部署: %v", err)
 	}
 	ime.destroySession(resp)
 
@@ -1826,6 +1844,30 @@ func (ime *IME) menuSwitches() []RimeSwitch {
 		seen[name] = struct{}{}
 	}
 	return menuSwitches
+}
+
+func (ime *IME) isKnownDynamicCommand(commandID int) bool {
+	if index, ok := switchCommandIndex(commandID); ok {
+		switches := ime.menuSwitches()
+		if index >= 0 && index < len(switches) {
+			return true
+		}
+	}
+	if index, ok := schemeSetCommandIndex(commandID); ok {
+		names := availableSchemeSets()
+		if index >= 0 && index < len(names) {
+			return true
+		}
+	}
+	if ime.backend != nil {
+		if index, ok := schemaCommandIndex(commandID); ok {
+			schemas := ime.backend.SchemaList()
+			if index >= 0 && index < len(schemas) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func switchMenuText(sw RimeSwitch, enabled bool) string {
@@ -2247,6 +2289,7 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 				{"id": ID_APPEARANCE_THEME_CHRYSANTHEMUM, "text": "菊花茶", "checked": ime.style.CandidateTheme == "chrysanthemum"},
 				{"id": ID_APPEARANCE_THEME_QINHUANGDAO, "text": "秦皇岛", "checked": ime.style.CandidateTheme == "qinhuangdao"},
 				{"id": ID_APPEARANCE_THEME_BUBBLEGUM, "text": "歪比巴卜", "checked": ime.style.CandidateTheme == "bubblegum"},
+				{"id": ID_APPEARANCE_THEME_PEPSI, "text": "百事可乐", "checked": ime.style.CandidateTheme == "pepsi"},
 			}},
 			{"id": ID_APPEARANCE_INLINE_PREEDIT, "text": "行内预编辑", "checked": ime.inlinePreeditEnabled()},
 			{"text": "候选排列", "submenu": []map[string]interface{}{
@@ -2272,12 +2315,24 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 				{"id": ID_APPEARANCE_FONT_20, "text": "20", "checked": ime.style.FontPoint == 20},
 				{"id": ID_APPEARANCE_FONT_22, "text": "22", "checked": ime.style.FontPoint == 22},
 			}},
+			{"text": "候选文字字体", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_FONT_FAMILY_SEGOE_UI, "text": "Segoe UI", "checked": strings.EqualFold(ime.style.FontFace, "Segoe UI")},
+				{"id": ID_APPEARANCE_FONT_FAMILY_YAHEI_UI, "text": "微软雅黑 UI", "checked": strings.EqualFold(ime.style.FontFace, "Microsoft YaHei UI")},
+				{"id": ID_APPEARANCE_FONT_FAMILY_DENGXIAN, "text": "等线", "checked": strings.EqualFold(ime.style.FontFace, "DengXian")},
+				{"id": ID_APPEARANCE_FONT_FAMILY_SIMSUN, "text": "宋体", "checked": strings.EqualFold(ime.style.FontFace, "SimSun")},
+			}},
 			{"text": "注释文字大小", "submenu": []map[string]interface{}{
 				{"id": ID_APPEARANCE_COMMENT_FONT_14, "text": "14", "checked": ime.style.CandidateCommentFontPoint == 14},
 				{"id": ID_APPEARANCE_COMMENT_FONT_16, "text": "16", "checked": ime.style.CandidateCommentFontPoint == 16},
 				{"id": ID_APPEARANCE_COMMENT_FONT_18, "text": "18", "checked": ime.style.CandidateCommentFontPoint == 18},
 				{"id": ID_APPEARANCE_COMMENT_FONT_20, "text": "20", "checked": ime.style.CandidateCommentFontPoint == 20},
 				{"id": ID_APPEARANCE_COMMENT_FONT_22, "text": "22", "checked": ime.style.CandidateCommentFontPoint == 22},
+			}},
+			{"text": "注释文字字体", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_COMMENT_FONT_FAMILY_CONSOLAS, "text": "Consolas", "checked": strings.EqualFold(ime.style.CandidateCommentFontFace, "Consolas")},
+				{"id": ID_APPEARANCE_COMMENT_FONT_FAMILY_YAHEI_UI, "text": "微软雅黑 UI", "checked": strings.EqualFold(ime.style.CandidateCommentFontFace, "Microsoft YaHei UI")},
+				{"id": ID_APPEARANCE_COMMENT_FONT_FAMILY_DENGXIAN, "text": "等线", "checked": strings.EqualFold(ime.style.CandidateCommentFontFace, "DengXian")},
+				{"id": ID_APPEARANCE_COMMENT_FONT_FAMILY_SIMSUN, "text": "宋体", "checked": strings.EqualFold(ime.style.CandidateCommentFontFace, "SimSun")},
 			}},
 			{"text": "候选框背景", "submenu": []map[string]interface{}{
 				{"id": ID_APPEARANCE_BG_WHITE, "text": "白色", "checked": strings.EqualFold(ime.style.CandidateBackgroundColor, "#ffffff")},

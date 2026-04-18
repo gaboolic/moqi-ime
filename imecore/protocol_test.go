@@ -74,6 +74,9 @@ func TestBuildProtoResponseIncludesCustomizeUIBooleans(t *testing.T) {
 	resp.CustomizeUI = map[string]interface{}{
 		"autoPairQuotes":        true,
 		"semicolonSelectSecond": true,
+		"candCommentFontName":   "Consolas",
+		"candCommentColor":      "#112233",
+		"candCommentHighlightColor": "#445566",
 	}
 
 	msg, err := BuildProtoResponse("client-1", resp)
@@ -89,5 +92,14 @@ func TestBuildProtoResponseIncludesCustomizeUIBooleans(t *testing.T) {
 	}
 	if got := msg.GetCustomizeUi().GetSemicolonSelectSecond(); !got {
 		t.Fatalf("expected semicolonSelectSecond=true, got %v", got)
+	}
+	if got := msg.GetCustomizeUi().GetCandCommentFontName(); got != "Consolas" {
+		t.Fatalf("expected candCommentFontName=Consolas, got %q", got)
+	}
+	if got := msg.GetCustomizeUi().GetCandCommentColor(); got != "#112233" {
+		t.Fatalf("expected candCommentColor=#112233, got %q", got)
+	}
+	if got := msg.GetCustomizeUi().GetCandCommentHighlightColor(); got != "#445566" {
+		t.Fatalf("expected candCommentHighlightColor=#445566, got %q", got)
 	}
 }

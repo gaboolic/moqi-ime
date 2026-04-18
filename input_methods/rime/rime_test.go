@@ -1,8 +1,10 @@
 package rime
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -451,6 +453,10 @@ func TestNewInitialState(t *testing.T) {
 	if ime.style.CandidateTheme != "default" || ime.style.FontPoint != 20 || ime.style.CandidateCommentFontPoint != 18 {
 		t.Fatalf("expected default theme defaults, got theme=%q font=%d commentFont=%d",
 			ime.style.CandidateTheme, ime.style.FontPoint, ime.style.CandidateCommentFontPoint)
+	}
+	if ime.style.CandidateCommentColor != ime.style.CandidateTextColor || ime.style.CandidateCommentHighlightColor != ime.style.CandidateHighlightTextColor {
+		t.Fatalf("expected default comment colors to follow text colors, got comment=%q highlight=%q text=%q hltext=%q",
+			ime.style.CandidateCommentColor, ime.style.CandidateCommentHighlightColor, ime.style.CandidateTextColor, ime.style.CandidateHighlightTextColor)
 	}
 	if ime.style.CandidateBackgroundColor != "#ffffff" || ime.style.CandidateHighlightColor != "#c6ddf9" {
 		t.Fatalf("expected default theme colors, got bg=%q hl=%q",
@@ -1003,6 +1009,40 @@ func TestOnCommandDeployReloadsAIConfig(t *testing.T) {
 	}
 }
 
+func TestOnCommandDeployIgnoresInvalidAIConfig(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	writeTestAIConfig(t, appData, `{
+  "api": {
+    "base_url": "https://example.com/v1"
+  }
+}`)
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 23,
+		ID:     imecore.FlexibleID{Int: ID_DEPLOY, IsInt: true},
+	}, imecore.NewResponse(23, true))
+
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected deploy command to succeed even when ai_config.json is invalid, got %d", resp.ReturnValue)
+	}
+	if backend.redeployCalls != 1 {
+		t.Fatalf("expected backend redeployed once, got %d", backend.redeployCalls)
+	}
+	if resp.TrayNotification == nil {
+		t.Fatal("expected deploy success tray notification")
+	}
+	if resp.TrayNotification.Title != "Rime" || resp.TrayNotification.Message != "重新部署成功" {
+		t.Fatalf("unexpected deploy success notification: %#v", resp.TrayNotification)
+	}
+	if resp.TrayNotification.Icon != imecore.TrayNotificationIconInfo {
+		t.Fatalf("expected info tray notification, got %q", resp.TrayNotification.Icon)
+	}
+}
+
 func TestOnCommandSyncUserData(t *testing.T) {
 	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
@@ -1360,6 +1400,38 @@ func TestOnCommandSwitchesSchemeSetAndRedeploysWithSelectedUserDir(t *testing.T)
 	}
 }
 
+func TestOnCommandKnownSchemeSetFailureDoesNotLogUnknownCommand(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	if err := os.MkdirAll(filepath.Join(appData, APP, defaultSchemeSetName), 0o755); err != nil {
+		t.Fatalf("create default scheme set: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(appData, APP, "Work"), 0o755); err != nil {
+		t.Fatalf("create Work scheme set: %v", err)
+	}
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.redeployOK = false
+
+	var buf bytes.Buffer
+	oldWriter := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(oldWriter)
+
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 101,
+		ID:     imecore.FlexibleID{Int: schemeSetCommandID(1), IsInt: true},
+	}, imecore.NewResponse(101, true))
+
+	if resp.ReturnValue != 0 {
+		t.Fatalf("expected scheme set command to fail when redeploy fails, got %d", resp.ReturnValue)
+	}
+	if got := buf.String(); strings.Contains(got, "未知命令") {
+		t.Fatalf("expected known scheme set command failure not to log unknown command, got %q", got)
+	}
+}
+
 func TestOnCommandUpdateConfigFailsWithoutGit(t *testing.T) {
 	oldLookPath := gitLookPathFunc
 	oldIsRepo := gitIsRepoFunc
@@ -1552,6 +1624,12 @@ func TestEffectiveCandidatePerRowIsCappedByCandidateCount(t *testing.T) {
 	}
 	if candPerRow != 3 {
 		t.Fatalf("expected customizeUI candPerRow capped to 3, got %d", candPerRow)
+	}
+	if got, ok := customizeUI["candCommentColor"].(string); !ok || got != ime.style.CandidateCommentColor {
+		t.Fatalf("expected customizeUI candCommentColor %q, got %#v", ime.style.CandidateCommentColor, customizeUI["candCommentColor"])
+	}
+	if got, ok := customizeUI["candCommentHighlightColor"].(string); !ok || got != ime.style.CandidateCommentHighlightColor {
+		t.Fatalf("expected customizeUI candCommentHighlightColor %q, got %#v", ime.style.CandidateCommentHighlightColor, customizeUI["candCommentHighlightColor"])
 	}
 }
 
@@ -2300,7 +2378,7 @@ func TestSuperAbbrevTabCommitsOverlayText(t *testing.T) {
 	backend.candidates = []candidateItem{{Text: "发"}}
 
 	filterResp := ime.filterKeyDown(&imecore.Request{
-		SeqNum: 401,
+		SeqNum:  401,
 		KeyCode: vkTab,
 	}, imecore.NewResponse(401, true))
 	if filterResp.ReturnValue != 1 {
@@ -2308,7 +2386,7 @@ func TestSuperAbbrevTabCommitsOverlayText(t *testing.T) {
 	}
 
 	onResp := ime.onKeyDown(&imecore.Request{
-		SeqNum: 402,
+		SeqNum:  402,
 		KeyCode: vkTab,
 	}, imecore.NewResponse(402, true))
 	if onResp.ReturnValue != 1 {
@@ -2372,7 +2450,7 @@ func TestSuperAbbrevTabCommitsOverlayTextWhenCustomPhraseIsFirst(t *testing.T) {
 	backend.candidates = []candidateItem{{Text: "发"}}
 
 	filterResp := ime.filterKeyDown(&imecore.Request{
-		SeqNum: 405,
+		SeqNum:  405,
 		KeyCode: vkTab,
 	}, imecore.NewResponse(405, true))
 	if filterResp.ReturnValue != 1 {
@@ -2380,7 +2458,7 @@ func TestSuperAbbrevTabCommitsOverlayTextWhenCustomPhraseIsFirst(t *testing.T) {
 	}
 
 	onResp := ime.onKeyDown(&imecore.Request{
-		SeqNum: 406,
+		SeqNum:  406,
 		KeyCode: vkTab,
 	}, imecore.NewResponse(406, true))
 	if onResp.ReturnValue != 1 {
@@ -2939,6 +3017,12 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	resetSharedAppearanceConfigForTest()
 
 	ime := newTestIME()
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_FONT_FAMILY_YAHEI_UI) {
+		t.Fatal("expected candidate font family command handled")
+	}
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_COMMENT_FONT_FAMILY_DENGXIAN) {
+		t.Fatal("expected comment font family command handled")
+	}
 	if !ime.applyAppearanceCommand(ID_APPEARANCE_FONT_22) {
 		t.Fatal("expected font size command handled")
 	}
@@ -2983,6 +3067,12 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	if got := persisted["font_point"]; got != float64(22) {
 		t.Fatalf("expected persisted font_point 22, got %#v", got)
 	}
+	if got := persisted["font_face"]; got != "Microsoft YaHei UI" {
+		t.Fatalf("expected persisted font_face Microsoft YaHei UI, got %#v", got)
+	}
+	if got := persisted["candidate_comment_font_face"]; got != "DengXian" {
+		t.Fatalf("expected persisted candidate_comment_font_face DengXian, got %#v", got)
+	}
 	if got := persisted["candidate_comment_font_point"]; got != float64(18) {
 		t.Fatalf("expected persisted candidate_comment_font_point 18, got %#v", got)
 	}
@@ -3004,6 +3094,12 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	if got := persisted["candidate_highlight_text_color"]; got != "#ffffff" {
 		t.Fatalf("expected persisted highlight text color, got %#v", got)
 	}
+	if got := persisted["candidate_comment_color"]; got != "#1d4ed8" {
+		t.Fatalf("expected persisted comment color, got %#v", got)
+	}
+	if got := persisted["candidate_comment_highlight_color"]; got != "#ffffff" {
+		t.Fatalf("expected persisted comment highlight color, got %#v", got)
+	}
 	if got := persisted["auto_pair_quotes"]; got != true {
 		t.Fatalf("expected persisted auto_pair_quotes true, got %#v", got)
 	}
@@ -3018,8 +3114,14 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	if reloaded.style.FontPoint != 22 {
 		t.Fatalf("expected reloaded font size 22, got %d", reloaded.style.FontPoint)
 	}
+	if reloaded.style.FontFace != "Microsoft YaHei UI" {
+		t.Fatalf("expected reloaded font face Microsoft YaHei UI, got %q", reloaded.style.FontFace)
+	}
 	if reloaded.style.CandidateCommentFontPoint != 18 {
 		t.Fatalf("expected reloaded comment font size 18, got %d", reloaded.style.CandidateCommentFontPoint)
+	}
+	if reloaded.style.CandidateCommentFontFace != "DengXian" {
+		t.Fatalf("expected reloaded comment font face DengXian, got %q", reloaded.style.CandidateCommentFontFace)
 	}
 	if reloaded.style.CandidatePerRow != 7 {
 		t.Fatalf("expected reloaded per-row 7, got %d", reloaded.style.CandidatePerRow)
@@ -3038,6 +3140,12 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	}
 	if reloaded.style.CandidateHighlightTextColor != "#ffffff" {
 		t.Fatalf("expected reloaded highlight text color, got %q", reloaded.style.CandidateHighlightTextColor)
+	}
+	if reloaded.style.CandidateCommentColor != "#1d4ed8" {
+		t.Fatalf("expected reloaded comment color, got %q", reloaded.style.CandidateCommentColor)
+	}
+	if reloaded.style.CandidateCommentHighlightColor != "#ffffff" {
+		t.Fatalf("expected reloaded comment highlight color, got %q", reloaded.style.CandidateCommentHighlightColor)
 	}
 	if reloaded.style.CandidateTheme != "custom" {
 		t.Fatalf("expected reloaded theme custom for custom colors, got %q", reloaded.style.CandidateTheme)
@@ -3076,6 +3184,12 @@ func TestLoadAppearancePrefsCreatesDefaultConfigWhenMissing(t *testing.T) {
 	}
 	if got := persisted["font_point"]; got != float64(20) {
 		t.Fatalf("expected persisted font_point 20, got %#v", got)
+	}
+	if got := persisted["font_face"]; got != "Segoe UI" {
+		t.Fatalf("expected persisted font_face Segoe UI, got %#v", got)
+	}
+	if got := persisted["candidate_comment_font_face"]; got != "Consolas" {
+		t.Fatalf("expected persisted candidate_comment_font_face Consolas, got %#v", got)
 	}
 	if got := persisted["candidate_comment_font_point"]; got != float64(18) {
 		t.Fatalf("expected persisted candidate_comment_font_point 18, got %#v", got)
