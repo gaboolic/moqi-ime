@@ -404,6 +404,7 @@ $RimeDataDir = Join-Path $RepoRoot "rime-frost"
 $PackageRimeDir = Join-Path $PackageDir "input_methods\rime"
 $PackageRimeDataDir = Join-Path $PackageRimeDir "data"
 $PackageRimePluginsDir = Join-Path $PackageRimeDir "rime-plugins"
+$PackageHostDir = $PackageDir
 $BertSourceDir = Join-Path $RimeDir "bert"
 $BertRuntimeDLL = Join-Path $BertSourceDir "onnxruntime.dll"
 $BertGrammarSourceDir = Join-Path $BertGrammarRepoRoot "bert_grammar"
@@ -567,9 +568,11 @@ try {
     Ensure-Directory -Path $PackageRimePluginsDir
     Copy-Item -LiteralPath $BertGrammarPluginDll -Destination (Join-Path $PackageRimePluginsDir "rime-bert-grammar.dll") -Force
     foreach ($runtimeDll in $OnnxRuntimeRuntimeDlls) {
-        Copy-Item -LiteralPath $runtimeDll -Destination (Join-Path $PackageRimePluginsDir ([System.IO.Path]::GetFileName($runtimeDll))) -Force
+        $runtimeName = [System.IO.Path]::GetFileName($runtimeDll)
+        Copy-Item -LiteralPath $runtimeDll -Destination (Join-Path $PackageRimePluginsDir $runtimeName) -Force
+        Copy-Item -LiteralPath $runtimeDll -Destination (Join-Path $PackageHostDir $runtimeName) -Force
     }
-    Write-Host "[INFO] Copied BERT grammar plugin DLL and ONNX Runtime runtime DLLs into rime-plugins"
+    Write-Host "[INFO] Copied BERT grammar plugin DLL into rime-plugins and staged ONNX Runtime runtime DLLs in both rime-plugins and the server host directory"
 
     $packageBertGrammarDataDir = Join-Path $PackageRimeDataDir "bert_grammar"
     Copy-DirectoryContents -Source $BertGrammarSourceDir -Destination $packageBertGrammarDataDir
@@ -604,6 +607,6 @@ Write-Host "2. Ensure C:\Program Files (x86)\MoqiIM\backends.json includes moqi-
 Write-Host "3. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\*\ime.json exists."
 Write-Host "4. Re-register both MoqiTextService.dll files after copying."
 Write-Host "5. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\rime contains rime.dll."
-Write-Host "6. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\rime\rime-plugins contains rime-bert-grammar.dll, onnxruntime.dll, and any companion ONNX Runtime DLLs."
+Write-Host "6. Ensure C:\Program Files (x86)\MoqiIM\moqi-ime contains onnxruntime.dll and any companion ONNX Runtime DLLs beside server.exe, and that input_methods\rime\rime-plugins also contains the plugin copy."
 Write-Host "7. If you want to use BERT grammar, configure model and vocab paths in your own Rime config; packaged shared assets are under C:\Program Files (x86)\MoqiIM\moqi-ime\input_methods\rime\data\bert_grammar."
 Write-Host "8. Start or restart MoqiLauncher.exe after install."

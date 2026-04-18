@@ -120,6 +120,14 @@ function Sync-GoBackendRuntime {
     $destinationServer = Join-Path $Destination "server.exe"
     Copy-Item -LiteralPath $sourceServer -Destination $destinationServer -Force
 
+    foreach ($runtimeName in @("onnxruntime.dll", "onnxruntime_providers_shared.dll")) {
+        $sourceRuntime = Join-Path $Source $runtimeName
+        $destinationRuntime = Join-Path $Destination $runtimeName
+        if (Test-Path -LiteralPath $sourceRuntime) {
+            Copy-Item -LiteralPath $sourceRuntime -Destination $destinationRuntime -Force
+        }
+    }
+
     $sourceInputMethods = Join-Path $Source "input_methods"
     $destinationInputMethods = Join-Path $Destination "input_methods"
     if (Test-Path -LiteralPath $destinationInputMethods) {
@@ -180,6 +188,10 @@ if (-not (Test-Path -LiteralPath $InstallRoot)) {
 
 $sourceServer = Join-Path $SourceRoot "server.exe"
 $destinationServer = Join-Path $InstallRoot "server.exe"
+$sourceOnnxRuntimeDLL = Join-Path $SourceRoot "onnxruntime.dll"
+$destinationOnnxRuntimeDLL = Join-Path $InstallRoot "onnxruntime.dll"
+$sourceOnnxProvidersDLL = Join-Path $SourceRoot "onnxruntime_providers_shared.dll"
+$destinationOnnxProvidersDLL = Join-Path $InstallRoot "onnxruntime_providers_shared.dll"
 $sourceRimeDLL = Join-Path $SourceRoot "input_methods\rime\rime.dll"
 $destinationRimeDLL = Join-Path $InstallRoot "input_methods\rime\rime.dll"
 
@@ -197,6 +209,10 @@ foreach ($path in $sourcePaths) {
 
 Write-FileDetails -Label "Source server.exe" -Path $sourceServer
 Write-FileDetails -Label "Destination server.exe (before)" -Path $destinationServer
+Write-FileDetails -Label "Source onnxruntime.dll" -Path $sourceOnnxRuntimeDLL
+Write-FileDetails -Label "Destination onnxruntime.dll (before)" -Path $destinationOnnxRuntimeDLL
+Write-FileDetails -Label "Source onnxruntime_providers_shared.dll" -Path $sourceOnnxProvidersDLL
+Write-FileDetails -Label "Destination onnxruntime_providers_shared.dll (before)" -Path $destinationOnnxProvidersDLL
 Write-FileDetails -Label "Source rime.dll" -Path $sourceRimeDLL
 Write-FileDetails -Label "Destination rime.dll (before)" -Path $destinationRimeDLL
 
@@ -207,6 +223,8 @@ try {
     Sync-RimeUserAIConfig -SourceConfig $sourceAIConfig -AppDataPath $env:APPDATA
 
     Write-FileDetails -Label "Destination server.exe (after)" -Path $destinationServer
+    Write-FileDetails -Label "Destination onnxruntime.dll (after)" -Path $destinationOnnxRuntimeDLL
+    Write-FileDetails -Label "Destination onnxruntime_providers_shared.dll (after)" -Path $destinationOnnxProvidersDLL
     Write-FileDetails -Label "Destination rime.dll (after)" -Path $destinationRimeDLL
 }
 finally {
