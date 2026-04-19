@@ -1630,6 +1630,46 @@ func deployTrayNotification(success bool) *imecore.TrayNotification {
 	return notification
 }
 
+func schemeSetTrayNotification(message string, icon imecore.TrayNotificationIcon) *imecore.TrayNotification {
+	return trayNotification(message, icon)
+}
+
+func (ime *IME) sendSchemeSetCompletionNotificationAsync(backend rimeBackend) {
+	if ime.asyncResponseSender == nil {
+		return
+	}
+	if native, ok := backend.(*nativeBackend); ok {
+		go func() {
+			ticker := time.NewTicker(50 * time.Millisecond)
+			defer ticker.Stop()
+			timeout := time.NewTimer(30 * time.Second)
+			defer timeout.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					if !native.Available() {
+						continue
+					}
+					notification := native.ConsumeNotification()
+					if notification != nil && notification.Icon == imecore.TrayNotificationIconError {
+						ime.sendAsyncTrayNotification(schemeSetTrayNotification("方案集切换失败", imecore.TrayNotificationIconError))
+						return
+					}
+					ime.sendAsyncTrayNotification(schemeSetTrayNotification("方案集切换成功", imecore.TrayNotificationIconInfo))
+					return
+				case <-timeout.C:
+					return
+				}
+			}
+		}()
+		return
+	}
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		ime.sendAsyncTrayNotification(schemeSetTrayNotification("方案集切换成功", imecore.TrayNotificationIconInfo))
+	}()
+}
+
 func (ime *IME) reloadAIConfig() error {
 	cfg, err := loadAIConfig()
 	if err != nil {
@@ -1931,10 +1971,22 @@ func (ime *IME) handleSchemeSetCommand(commandID int, req *imecore.Request, resp
 	if !saveCurrentSchemeSetName(target) {
 		return false
 	}
+	resp.TrayNotification = schemeSetTrayNotification("方案集切换中...", imecore.TrayNotificationIconInfo)
 	if ime.redeploy(req, resp) {
+		if _, ok := ime.backend.(*nativeBackend); ok {
+			ime.sendSchemeSetCompletionNotificationAsync(ime.backend)
+			return true
+		}
+		if ime.asyncResponseSender != nil {
+			resp.TrayNotification = schemeSetTrayNotification("方案集切换中...", imecore.TrayNotificationIconInfo)
+			ime.sendSchemeSetCompletionNotificationAsync(ime.backend)
+			return true
+		}
+		resp.TrayNotification = schemeSetTrayNotification("方案集切换成功", imecore.TrayNotificationIconInfo)
 		return true
 	}
 	_ = saveCurrentSchemeSetName(current)
+	resp.TrayNotification = schemeSetTrayNotification("方案集切换失败", imecore.TrayNotificationIconError)
 	return false
 }
 

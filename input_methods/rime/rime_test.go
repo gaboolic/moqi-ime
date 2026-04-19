@@ -1398,6 +1398,49 @@ func TestOnCommandSwitchesSchemeSetAndRedeploysWithSelectedUserDir(t *testing.T)
 	if got := currentSchemeSetName(); got != "Work" {
 		t.Fatalf("expected current scheme set Work after switch, got %q", got)
 	}
+	if resp.TrayNotification == nil || resp.TrayNotification.Message != "方案集切换成功" {
+		t.Fatalf("unexpected tray notification: %#v", resp.TrayNotification)
+	}
+}
+
+func TestOnCommandSwitchesSchemeSetShowsProgressAndAsyncSuccessNotification(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	if err := os.MkdirAll(filepath.Join(appData, APP, defaultSchemeSetName), 0o755); err != nil {
+		t.Fatalf("create default scheme set: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(appData, APP, "Work"), 0o755); err != nil {
+		t.Fatalf("create Work scheme set: %v", err)
+	}
+
+	ime := newIsolatedTestIME(t)
+	asyncResponses := make(chan *imecore.Response, 1)
+	ime.SetAsyncResponseSender(func(resp *imecore.Response) {
+		asyncResponses <- resp
+	})
+
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 100,
+		ID:     imecore.FlexibleID{Int: schemeSetCommandID(1), IsInt: true},
+	}, imecore.NewResponse(100, true))
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected scheme set command handled, got %d", resp.ReturnValue)
+	}
+	if resp.TrayNotification == nil || resp.TrayNotification.Message != "方案集切换中..." {
+		t.Fatalf("unexpected initial tray notification: %#v", resp.TrayNotification)
+	}
+
+	select {
+	case asyncResp := <-asyncResponses:
+		if asyncResp.TrayNotification == nil {
+			t.Fatalf("expected async tray notification, got %#v", asyncResp)
+		}
+		if asyncResp.TrayNotification.Message != "方案集切换成功" {
+			t.Fatalf("unexpected async tray notification: %#v", asyncResp.TrayNotification)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for async scheme set tray notification")
+	}
 }
 
 func TestOnCommandKnownSchemeSetFailureDoesNotLogUnknownCommand(t *testing.T) {
@@ -1426,6 +1469,9 @@ func TestOnCommandKnownSchemeSetFailureDoesNotLogUnknownCommand(t *testing.T) {
 
 	if resp.ReturnValue != 0 {
 		t.Fatalf("expected scheme set command to fail when redeploy fails, got %d", resp.ReturnValue)
+	}
+	if resp.TrayNotification == nil || resp.TrayNotification.Message != "方案集切换失败" {
+		t.Fatalf("unexpected tray notification: %#v", resp.TrayNotification)
 	}
 	if got := buf.String(); strings.Contains(got, "未知命令") {
 		t.Fatalf("expected known scheme set command failure not to log unknown command, got %q", got)
