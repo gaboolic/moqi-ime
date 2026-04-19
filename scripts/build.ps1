@@ -144,6 +144,9 @@ function Write-ServerVersionInfo {
         [string] $IconPath
     )
 
+    $fileDescription = ([char]0x58A8).ToString() + ([char]0x5947) + ([char]0x8F93) + ([char]0x5165) + ([char]0x6CD5) + ([char]0x5F15) + ([char]0x64CE) + ([char]0x670D) + ([char]0x52A1)
+    $productName = ([char]0x58A8).ToString() + ([char]0x5947) + ([char]0x8F93) + ([char]0x5165) + ([char]0x6CD5)
+
     $versionInfo = [ordered]@{
         FixedFileInfo  = [ordered]@{
             FileVersion    = [ordered]@{
@@ -167,14 +170,14 @@ function Write-ServerVersionInfo {
         StringFileInfo = [ordered]@{
             Comments         = ""
             CompanyName      = ""
-            FileDescription  = "墨奇输入法引擎服务"
+            FileDescription  = $fileDescription
             FileVersion      = "1.0.0.0"
             InternalName     = "server.exe"
             LegalCopyright   = ""
             LegalTrademarks  = ""
             OriginalFilename = "server.exe"
             PrivateBuild     = ""
-            ProductName      = "墨奇输入法"
+            ProductName      = $productName
             ProductVersion   = "1.0.0.0"
             SpecialBuild     = ""
         }
