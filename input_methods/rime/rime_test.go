@@ -1323,6 +1323,111 @@ func TestOnCommandOpenSuperAbbrevCreatesFileAndOpensIt(t *testing.T) {
 	}
 }
 
+func TestOnCommandOpenAutoPairSymbolsCreatesFileAndOpensIt(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetAutoPairSymbolsStateForTest()
+	oldOpen := openAutoPairSymbolsTargetFunc
+	defer func() {
+		openAutoPairSymbolsTargetFunc = oldOpen
+	}()
+
+	var openedPath string
+	openAutoPairSymbolsTargetFunc = func(path string) error {
+		openedPath = path
+		return nil
+	}
+
+	ime := newIsolatedTestIME(t)
+	resp := ime.onCommand(&imecore.Request{
+		SeqNum: 102,
+		ID:     imecore.FlexibleID{Int: ID_OPEN_AUTO_PAIR_SYMBOLS, IsInt: true},
+	}, imecore.NewResponse(102, true))
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected open auto pair symbols command handled, got %d", resp.ReturnValue)
+	}
+	wantPath := filepath.Join(appData, APP, autoPairSymbolsFileName)
+	if openedPath != wantPath {
+		t.Fatalf("expected opened auto pair symbols path %q, got %q", wantPath, openedPath)
+	}
+	data, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("expected auto pair symbols file created: %v", err)
+	}
+	if !strings.Contains(string(data), "每行一对符号") || !strings.Contains(string(data), "“”") {
+		t.Fatalf("expected default auto pair symbols content, got %q", string(data))
+	}
+}
+
+func TestCustomizeUIMapLoadsAutoPairRulesFromFile(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetAutoPairSymbolsStateForTest()
+
+	path := filepath.Join(appData, APP, autoPairSymbolsFileName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create auto pair symbols dir: %v", err)
+	}
+	content := "# 成对符号\n{}\n《》\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write auto pair symbols file: %v", err)
+	}
+
+	ime := newIsolatedTestIME(t)
+	customizeUI := ime.customizeUIMap()
+	rules, ok := customizeUI["autoPairRules"].([]imecore.AutoPairRule)
+	if !ok {
+		t.Fatalf("expected autoPairRules slice, got %#v", customizeUI["autoPairRules"])
+	}
+	if len(rules) != 2 {
+		t.Fatalf("expected 2 auto pair rules, got %#v", rules)
+	}
+	if rules[0].Open != "{" || rules[0].Close != "}" {
+		t.Fatalf("unexpected first auto pair rule: %#v", rules[0])
+	}
+	if rules[1].Open != "《" || rules[1].Close != "》" {
+		t.Fatalf("unexpected second auto pair rule: %#v", rules[1])
+	}
+}
+
+func TestHandleRequestRefreshesCustomizeUIWhenAutoPairRulesFileChanges(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetAutoPairSymbolsStateForTest()
+
+	path := filepath.Join(appData, APP, autoPairSymbolsFileName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create auto pair symbols dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("(\t)\n"), 0o644); err != nil {
+		t.Fatalf("write initial auto pair symbols file: %v", err)
+	}
+
+	ime := newIsolatedTestIME(t)
+	first := ime.HandleRequest(&imecore.Request{
+		Method: "onMenu",
+		SeqNum: 200,
+	})
+	firstRules, ok := first.CustomizeUI["autoPairRules"].([]imecore.AutoPairRule)
+	if !ok || len(firstRules) != 1 || firstRules[0].Open != "(" || firstRules[0].Close != ")" {
+		t.Fatalf("unexpected first auto pair rules: %#v", first.CustomizeUI)
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	if err := os.WriteFile(path, []byte("[\t]\n"), 0o644); err != nil {
+		t.Fatalf("write updated auto pair symbols file: %v", err)
+	}
+
+	second := ime.HandleRequest(&imecore.Request{
+		Method: "onMenu",
+		SeqNum: 201,
+	})
+	secondRules, ok := second.CustomizeUI["autoPairRules"].([]imecore.AutoPairRule)
+	if !ok || len(secondRules) != 1 || secondRules[0].Open != "[" || secondRules[0].Close != "]" {
+		t.Fatalf("unexpected refreshed auto pair rules: %#v", second.CustomizeUI)
+	}
+}
+
 func TestBuildMenuUsesSwitcherSaveOptions(t *testing.T) {
 	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
@@ -1676,6 +1781,16 @@ func TestEffectiveCandidatePerRowIsCappedByCandidateCount(t *testing.T) {
 	}
 	if got, ok := customizeUI["candCommentHighlightColor"].(string); !ok || got != ime.style.CandidateCommentHighlightColor {
 		t.Fatalf("expected customizeUI candCommentHighlightColor %q, got %#v", ime.style.CandidateCommentHighlightColor, customizeUI["candCommentHighlightColor"])
+	}
+	rules, ok := customizeUI["autoPairRules"].([]imecore.AutoPairRule)
+	if !ok {
+		t.Fatalf("expected autoPairRules slice, got %#v", customizeUI["autoPairRules"])
+	}
+	if len(rules) == 0 {
+		t.Fatal("expected autoPairRules to be populated")
+	}
+	if rules[0].Open != "“" || rules[0].Close != "”" {
+		t.Fatalf("unexpected first autoPairRule: %#v", rules[0])
 	}
 }
 
@@ -2071,8 +2186,8 @@ func TestBuildMenuIncludesInputSettingsSubmenu(t *testing.T) {
 	}
 
 	submenu, ok := inputSettingsMenu["submenu"].([]map[string]interface{})
-	if !ok || len(submenu) != 2 {
-		t.Fatalf("expected two input settings items, got %#v", inputSettingsMenu["submenu"])
+	if !ok || len(submenu) != 3 {
+		t.Fatalf("expected three input settings items, got %#v", inputSettingsMenu["submenu"])
 	}
 	if text, _ := submenu[0]["text"].(string); text != "自动插入成对符号" {
 		t.Fatalf("unexpected input settings item: %#v", submenu[0])
@@ -2080,11 +2195,14 @@ func TestBuildMenuIncludesInputSettingsSubmenu(t *testing.T) {
 	if checked, _ := submenu[0]["checked"].(bool); checked {
 		t.Fatalf("expected auto pair quotes disabled by default, got %#v", submenu[0])
 	}
-	if text, _ := submenu[1]["text"].(string); text != "分号键次选" {
+	if text, _ := submenu[1]["text"].(string); text != "成对符号" {
 		t.Fatalf("unexpected second input settings item: %#v", submenu[1])
 	}
-	if checked, _ := submenu[1]["checked"].(bool); checked {
-		t.Fatalf("expected semicolon select second disabled by default, got %#v", submenu[1])
+	if text, _ := submenu[2]["text"].(string); text != "分号键次选" {
+		t.Fatalf("unexpected third input settings item: %#v", submenu[2])
+	}
+	if checked, _ := submenu[2]["checked"].(bool); checked {
+		t.Fatalf("expected semicolon select second disabled by default, got %#v", submenu[2])
 	}
 }
 

@@ -72,11 +72,15 @@ func TestBuildProtoResponseIncludesClearedCompositionState(t *testing.T) {
 func TestBuildProtoResponseIncludesCustomizeUIBooleans(t *testing.T) {
 	resp := NewResponse(1, true)
 	resp.CustomizeUI = map[string]interface{}{
-		"autoPairQuotes":        true,
-		"semicolonSelectSecond": true,
-		"candCommentFontName":   "Consolas",
-		"candCommentColor":      "#112233",
+		"autoPairQuotes":             true,
+		"semicolonSelectSecond":      true,
+		"candCommentFontName":        "Consolas",
+		"candCommentColor":           "#112233",
 		"candCommentHighlightColor": "#445566",
+		"autoPairRules": []AutoPairRule{
+			{Open: "“", Close: "”"},
+			{Open: "(", Close: ")"},
+		},
 	}
 
 	msg, err := BuildProtoResponse("client-1", resp)
@@ -101,5 +105,15 @@ func TestBuildProtoResponseIncludesCustomizeUIBooleans(t *testing.T) {
 	}
 	if got := msg.GetCustomizeUi().GetCandCommentHighlightColor(); got != "#445566" {
 		t.Fatalf("expected candCommentHighlightColor=#445566, got %q", got)
+	}
+	rules := msg.GetCustomizeUi().GetAutoPairRules()
+	if len(rules) != 2 {
+		t.Fatalf("expected 2 autoPairRules, got %#v", rules)
+	}
+	if rules[0].GetOpen() != "“" || rules[0].GetClose() != "”" {
+		t.Fatalf("unexpected first autoPairRule: %#v", rules[0])
+	}
+	if rules[1].GetOpen() != "(" || rules[1].GetClose() != ")" {
+		t.Fatalf("unexpected second autoPairRule: %#v", rules[1])
 	}
 }
