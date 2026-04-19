@@ -2729,6 +2729,53 @@ func TestCustomPhraseOverlayCanSelectBackendCandidateAfterCustomOnes(t *testing.
 	}
 }
 
+func TestCustomPhraseOverlayNumberSelectionMatchesVisibleDeduplicatedCandidates(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\n传\tc\t10\n")
+
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "c"
+	backend.rawInput = "c"
+	backend.candidates = []candidateItem{
+		{Text: "传"},
+		{Text: "船"},
+		{Text: "串"},
+	}
+
+	showResp := imecore.NewResponse(341, true)
+	ime.fillResponseFromBackendState(showResp, false)
+	if len(showResp.CandidateList) != 3 {
+		t.Fatalf("expected visible candidates to be deduplicated to 3 entries, got %#v", showResp.CandidateList)
+	}
+	if showResp.CandidateList[0] != "传" || showResp.CandidateList[1] != "船" || showResp.CandidateList[2] != "串" {
+		t.Fatalf("expected visible candidates [传 船 串], got %#v", showResp.CandidateList)
+	}
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum:   342,
+		KeyCode:  int('2'),
+		CharCode: int('2'),
+	}, imecore.NewResponse(342, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected second number key intercepted for deduplicated overlay, got %d", filterResp.ReturnValue)
+	}
+
+	onResp := ime.onKeyDown(&imecore.Request{
+		SeqNum:   343,
+		KeyCode:  int('2'),
+		CharCode: int('2'),
+	}, imecore.NewResponse(343, true))
+	if onResp.ReturnValue != 1 {
+		t.Fatalf("expected deduplicated overlay selection handled, got %d", onResp.ReturnValue)
+	}
+	if onResp.CommitString != "船" {
+		t.Fatalf("expected visible second candidate 船 to be committed, got %q", onResp.CommitString)
+	}
+}
+
 func TestCustomPhraseOverlayDoesNotInterceptEnter(t *testing.T) {
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
@@ -2791,6 +2838,54 @@ func TestCustomPhraseOverlaySemicolonSelectsSecondVisibleCandidate(t *testing.T)
 	}
 	if onResp.CommitString != "阿" {
 		t.Fatalf("expected semicolon to select second visible candidate 阿, got %q", onResp.CommitString)
+	}
+}
+
+func TestCustomPhraseOverlaySemicolonSelectionMatchesVisibleDeduplicatedCandidates(t *testing.T) {
+	appData := t.TempDir()
+	t.Setenv("APPDATA", appData)
+	resetCustomPhraseCacheForTest()
+	writeTestCustomPhraseFile(t, appData, "# 置顶短语\n传\tc\t10\n")
+
+	ime := newIsolatedTestIME(t)
+	ime.semicolonSelectSecond = true
+	backend := ime.backend.(*testBackend)
+	backend.composition = "c"
+	backend.rawInput = "c"
+	backend.candidates = []candidateItem{
+		{Text: "传"},
+		{Text: "船"},
+		{Text: "串"},
+	}
+
+	showResp := imecore.NewResponse(361, true)
+	ime.fillResponseFromBackendState(showResp, false)
+	if len(showResp.CandidateList) != 3 {
+		t.Fatalf("expected visible candidates to be deduplicated to 3 entries, got %#v", showResp.CandidateList)
+	}
+	if showResp.CandidateList[0] != "传" || showResp.CandidateList[1] != "船" || showResp.CandidateList[2] != "串" {
+		t.Fatalf("expected visible candidates [传 船 串], got %#v", showResp.CandidateList)
+	}
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum:   362,
+		KeyCode:  vkOem1,
+		CharCode: int(';'),
+	}, imecore.NewResponse(362, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected semicolon key intercepted for deduplicated overlay, got %d", filterResp.ReturnValue)
+	}
+
+	onResp := ime.onKeyDown(&imecore.Request{
+		SeqNum:   363,
+		KeyCode:  vkOem1,
+		CharCode: int(';'),
+	}, imecore.NewResponse(363, true))
+	if onResp.ReturnValue != 1 {
+		t.Fatalf("expected semicolon deduplicated overlay selection handled, got %d", onResp.ReturnValue)
+	}
+	if onResp.CommitString != "船" {
+		t.Fatalf("expected semicolon to select visible second candidate 船, got %q", onResp.CommitString)
 	}
 }
 

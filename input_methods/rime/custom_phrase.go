@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	customPhraseFileName  = "moqi_custom_phrase.txt"
-	ID_OPEN_CUSTOM_PHRASE = 18
+	customPhraseFileName         = "moqi_custom_phrase.txt"
+	ID_OPEN_CUSTOM_PHRASE        = 18
 	customPhraseTemplateFileName = "moqi_custom_phrase.txt"
 )
 
@@ -282,20 +282,27 @@ func (ime *IME) visibleCustomPhraseCandidates(matchInput string) []candidateItem
 	return cloneCandidateItems(ime.customPhraseCandidates)
 }
 
-func (ime *IME) currentCustomPhraseOverlay() (rimeState, []candidateItem, bool) {
+func (ime *IME) currentCustomPhraseOverlay() (rimeState, []candidateItem, []int, bool) {
 	if ime.aiActive {
-		return rimeState{}, nil, false
+		return rimeState{}, nil, nil, false
 	}
 	state, ok := ime.currentVisibleBackendState()
 	if !ok || strings.TrimSpace(state.Composition) == "" {
 		ime.resetCustomPhraseOverlay()
-		return rimeState{}, nil, false
+		return rimeState{}, nil, nil, false
 	}
 
 	customCandidates := ime.visibleCustomPhraseCandidatesForState(state)
 	if len(customCandidates) == 0 {
-		return state, nil, false
+		return state, nil, nil, false
 	}
+
+	if _, overlay, ok := ime.currentSuperAbbrevOverlay(); ok {
+		customCandidates = applySuperAbbrevOverlayToCandidates(customCandidates, overlay)
+	}
+
+	var backendIndexes []int
+	state.Candidates, backendIndexes = filterVisibleBackendCandidatesForCustomOverlay(state.Candidates, customCandidates)
 
 	remaining := ime.candidateCount() - len(customCandidates)
 	if remaining < 0 {
@@ -304,14 +311,15 @@ func (ime *IME) currentCustomPhraseOverlay() (rimeState, []candidateItem, bool) 
 	}
 	if len(state.Candidates) > remaining {
 		state.Candidates = append([]candidateItem(nil), state.Candidates[:remaining]...)
+		backendIndexes = append([]int(nil), backendIndexes[:remaining]...)
 	}
 	if state.SelectKeys != "" && len(state.SelectKeys) > remaining {
-		state.SelectKeys = state.SelectKeys[:remaining]
+		state.SelectKeys = state.SelectKeys[:len(state.Candidates)]
 	}
 	total := len(customCandidates) + len(state.Candidates)
 	if total <= 0 {
 		ime.resetCustomPhraseOverlay()
-		return state, nil, false
+		return state, nil, nil, false
 	}
 	if ime.customPhraseCursor < 0 {
 		ime.customPhraseCursor = 0
@@ -319,7 +327,34 @@ func (ime *IME) currentCustomPhraseOverlay() (rimeState, []candidateItem, bool) 
 	if ime.customPhraseCursor >= total {
 		ime.customPhraseCursor = total - 1
 	}
-	return state, customCandidates, true
+	return state, customCandidates, backendIndexes, true
+}
+
+func filterVisibleBackendCandidatesForCustomOverlay(candidates []candidateItem, existing []candidateItem) ([]candidateItem, []int) {
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, len(existing))
+	for _, candidate := range existing {
+		key := candidateTextKey(candidate)
+		if key == "" {
+			continue
+		}
+		seen[key] = struct{}{}
+	}
+	filtered := make([]candidateItem, 0, len(candidates))
+	indexes := make([]int, 0, len(candidates))
+	for i, candidate := range candidates {
+		key := candidateTextKey(candidate)
+		if key != "" {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+		}
+		filtered = append(filtered, candidate)
+		indexes = append(indexes, i)
+	}
+	return filtered, indexes
 }
 
 func (ime *IME) isCustomPhraseHandledKey(req *imecore.Request, totalCandidates int) bool {
@@ -343,7 +378,7 @@ func (ime *IME) handleCustomPhraseKeyDownFilter(req *imecore.Request, resp *imec
 	if req == nil {
 		return false
 	}
-	state, customCandidates, ok := ime.currentCustomPhraseOverlay()
+	state, customCandidates, _, ok := ime.currentCustomPhraseOverlay()
 	if !ok {
 		return false
 	}
@@ -395,7 +430,7 @@ func (ime *IME) handleCustomPhraseKeyDown(req *imecore.Request, resp *imecore.Re
 	if req == nil || ime.customPhraseConsumeKeyUpCode == 0 || selectionShortcutConsumeCode(req) != ime.customPhraseConsumeKeyUpCode {
 		return false
 	}
-	state, customCandidates, ok := ime.currentCustomPhraseOverlay()
+	state, customCandidates, backendIndexes, ok := ime.currentCustomPhraseOverlay()
 	if !ok {
 		ime.fillResponseFromCurrentState(resp)
 		resp.ReturnValue = 1
@@ -423,7 +458,9 @@ func (ime *IME) handleCustomPhraseKeyDown(req *imecore.Request, resp *imecore.Re
 			resp.ReturnValue = 1
 			return true
 		}
-		if ime.commitBackendOverlayCandidate(resp, ime.customPhraseCursor-len(customCandidates)) {
+		backendListIndex := ime.customPhraseCursor - len(customCandidates)
+		if backendListIndex >= 0 && backendListIndex < len(backendIndexes) &&
+			ime.commitBackendOverlayCandidate(resp, backendIndexes[backendListIndex]) {
 			resp.ReturnValue = 1
 			return true
 		}
@@ -447,10 +484,13 @@ func (ime *IME) handleCustomPhraseKeyDown(req *imecore.Request, resp *imecore.Re
 				resp.ReturnValue = 1
 				return true
 			}
-			if index < total && ime.commitBackendOverlayCandidate(resp, index-len(customCandidates)) {
+			backendListIndex := index - len(customCandidates)
+			if index < total && backendListIndex >= 0 && backendListIndex < len(backendIndexes) &&
+				ime.commitBackendOverlayCandidate(resp, backendIndexes[backendListIndex]) {
 				if isSemicolonDebugEvent(req) {
-					debugLogf("semicolon onKeyDown custom selecting backendIndex=%d composition=%q custom=%v backend=%v commit=%q",
-						index-len(customCandidates),
+					debugLogf("semicolon onKeyDown custom selecting backendIndex=%d visibleBackendIndex=%d composition=%q custom=%v backend=%v commit=%q",
+						backendIndexes[backendListIndex],
+						backendListIndex,
 						state.Composition,
 						summarizeCandidateTexts(customCandidates, 6),
 						summarizeCandidateTexts(state.Candidates, 6),

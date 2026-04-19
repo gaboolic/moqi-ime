@@ -2418,7 +2418,7 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 		}},
 		map[string]interface{}{"text": "输入设置", "submenu": []map[string]interface{}{
 			{"id": ID_INPUT_AUTO_PAIR_QUOTES, "text": "自动插入成对符号", "checked": ime.autoPairQuotes},
-			{"id": ID_OPEN_AUTO_PAIR_SYMBOLS, "text": "成对符号"},
+			{"id": ID_OPEN_AUTO_PAIR_SYMBOLS, "text": "打开成对符号设置"},
 			{"id": ID_INPUT_SEMICOLON_SELECT_SECOND, "text": "分号键次选", "checked": ime.semicolonSelectSecond},
 		}},
 		map[string]interface{}{"text": "打开文件夹(&O)", "submenu": []map[string]interface{}{
