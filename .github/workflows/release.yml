@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build-release:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.6"
+          cache-dependency-path: go.sum
+
+      - name: Build moqi-ime runtime
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -RepoRoot "$PWD"
+
+      - name: Package release zip
+        run: |
+          $tag = "${{ github.event.release.tag_name || github.ref_name }}"
+          $safeTag = $tag -replace '[^0-9A-Za-z._-]', '-'
+          $packageRoot = Join-Path $PWD "scripts\build\moqi-ime"
+          $zipPath = Join-Path $PWD ("scripts\build\moqi-ime-{0}.zip" -f $safeTag)
+
+          if (-not (Test-Path -LiteralPath $packageRoot)) {
+            throw "Missing package root: $packageRoot"
+          }
+          if (Test-Path -LiteralPath $zipPath) {
+            Remove-Item -LiteralPath $zipPath -Force
+          }
+
+          Compress-Archive -Path $packageRoot -DestinationPath $zipPath -CompressionLevel Optimal
+          "RELEASE_ASSET_PATH=$zipPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moqi-ime-release-${{ github.event.release.tag_name || github.sha }}
+          path: ${{ github.workspace }}/scripts/build/moqi-ime-*.zip
+          if-no-files-found: error
+
+      - name: Upload asset to GitHub release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.event.release.tag_name }}"
+          gh release upload $tag $env:RELEASE_ASSET_PATH --clobber

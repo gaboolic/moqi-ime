@@ -1,0 +1,91 @@
+name: Nightly
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-main
+  cancel-in-progress: true
+
+jobs:
+  build-nightly:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.6"
+          cache-dependency-path: go.sum
+
+      - name: Build moqi-ime runtime
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -RepoRoot "$PWD"
+
+      - name: Package nightly zip
+        run: |
+          $packageRoot = Join-Path $PWD "scripts\build\moqi-ime"
+          $zipPath = Join-Path $PWD "scripts\build\moqi-ime-nightly.zip"
+
+          if (-not (Test-Path -LiteralPath $packageRoot)) {
+            throw "Missing package root: $packageRoot"
+          }
+          if (Test-Path -LiteralPath $zipPath) {
+            Remove-Item -LiteralPath $zipPath -Force
+          }
+
+          Compress-Archive -Path $packageRoot -DestinationPath $zipPath -CompressionLevel Optimal
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moqi-ime-nightly-${{ github.sha }}
+          path: ${{ github.workspace }}/scripts/build/moqi-ime-nightly.zip
+          if-no-files-found: error
+
+      - name: Publish nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "nightly"
+          $assetPath = Join-Path $PWD "scripts\build\moqi-ime-nightly.zip"
+          $notesPath = Join-Path $env:RUNNER_TEMP "nightly-notes.md"
+          $runUrl = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+
+          @(
+            "Automated nightly build from `main`."
+            ""
+            "Commit: $env:GITHUB_SHA"
+            "Run: $runUrl"
+          ) | Set-Content -LiteralPath $notesPath -Encoding utf8
+
+          git tag --force $tag $env:GITHUB_SHA
+          git push origin "refs/tags/$tag" --force
+
+          $existingTag = gh release list --limit 100 --json tagName --jq ".[] | select(.tagName == `"$tag`") | .tagName"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to query existing releases."
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($existingTag)) {
+            gh release upload $tag $assetPath --clobber
+            gh release edit $tag --title "Nightly" --notes-file $notesPath
+          }
+          else {
+            gh release create $tag $assetPath --title "Nightly" --notes-file $notesPath --prerelease
+          }
