@@ -193,6 +193,7 @@ type IME struct {
 	asyncResponseSender          func(*imecore.Response)
 	aiRequestSeq                 uint64
 	appearanceVersion            uint64
+	autoPairRulesVersion         uint64
 	inputStateShared             bool
 	sharedOptions                map[string]bool
 	sharedInputStateNeedsApply   bool
@@ -290,6 +291,9 @@ func (ime *IME) HandleRequest(req *imecore.Request) *imecore.Response {
 	resp := imecore.NewResponse(req.SeqNum, true)
 	if ime.syncAppearancePrefs() {
 		ime.sharedInputStateNeedsApply = ime.inputStateShared
+		resp.CustomizeUI = ime.customizeUIMap()
+	}
+	if ime.syncAutoPairRules() {
 		resp.CustomizeUI = ime.customizeUIMap()
 	}
 	ime.consumeAIAsyncResult(resp)
@@ -716,6 +720,11 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 		}
 	case ID_OPEN_SUPER_ABBREV:
 		if !ime.openSuperAbbrevFile(resp) {
+			resp.ReturnValue = 0
+			return resp
+		}
+	case ID_OPEN_AUTO_PAIR_SYMBOLS:
+		if !ime.openAutoPairSymbolsFile(resp) {
 			resp.ReturnValue = 0
 			return resp
 		}
@@ -2409,6 +2418,7 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 		}},
 		map[string]interface{}{"text": "输入设置", "submenu": []map[string]interface{}{
 			{"id": ID_INPUT_AUTO_PAIR_QUOTES, "text": "自动插入成对符号", "checked": ime.autoPairQuotes},
+			{"id": ID_OPEN_AUTO_PAIR_SYMBOLS, "text": "成对符号"},
 			{"id": ID_INPUT_SEMICOLON_SELECT_SECOND, "text": "分号键次选", "checked": ime.semicolonSelectSecond},
 		}},
 		map[string]interface{}{"text": "打开文件夹(&O)", "submenu": []map[string]interface{}{

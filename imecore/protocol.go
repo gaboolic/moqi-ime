@@ -117,6 +117,11 @@ type CandidateEntry struct {
 	Comment string
 }
 
+type AutoPairRule struct {
+	Open  string
+	Close string
+}
+
 // Response Moqi响应结构
 type Response struct {
 	SeqNum             int
@@ -444,6 +449,18 @@ func customizeUiToProto(data map[string]interface{}) *moqipb.CustomizeUi {
 	}
 	if value, ok := data["semicolonSelectSecond"].(bool); ok {
 		ui.SemicolonSelectSecond = boolPtr(value)
+	}
+	if rules, ok := data["autoPairRules"].([]AutoPairRule); ok {
+		ui.AutoPairRules = make([]*moqipb.AutoPairRule, 0, len(rules))
+		for _, rule := range rules {
+			if rule.Open == "" || rule.Close == "" {
+				continue
+			}
+			ui.AutoPairRules = append(ui.AutoPairRules, &moqipb.AutoPairRule{
+				Open:  rule.Open,
+				Close: rule.Close,
+			})
+		}
 	}
 	return ui
 }

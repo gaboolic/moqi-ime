@@ -545,6 +545,7 @@ func (ime *IME) customizeUIMap() map[string]interface{} {
 		"candCommentHighlightColor": normalizeColor(ime.style.CandidateCommentHighlightColor),
 		"inlinePreedit":          ime.inlinePreeditEnabled(),
 		"autoPairQuotes":         ime.autoPairQuotes,
+		"autoPairRules":          ime.currentAutoPairRules(),
 		"semicolonSelectSecond":  ime.semicolonSelectSecond,
 	}
 }
