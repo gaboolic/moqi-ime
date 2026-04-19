@@ -2074,7 +2074,7 @@ func TestBuildMenuIncludesInputSettingsSubmenu(t *testing.T) {
 	if !ok || len(submenu) != 2 {
 		t.Fatalf("expected two input settings items, got %#v", inputSettingsMenu["submenu"])
 	}
-	if text, _ := submenu[0]["text"].(string); text != "自动插入成对引号" {
+	if text, _ := submenu[0]["text"].(string); text != "自动插入成对符号" {
 		t.Fatalf("unexpected input settings item: %#v", submenu[0])
 	}
 	if checked, _ := submenu[0]["checked"].(bool); checked {
