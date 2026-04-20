@@ -364,7 +364,9 @@ func (ime *IME) filterKeyDown(req *imecore.Request, resp *imecore.Response) *ime
 	} else {
 		ime.lastKeyDownCode = req.KeyCode
 		ime.lastKeySkip = 0
+		beforeASCII, beforeFullShape, hasInputState := ime.currentInputModeState()
 		ime.lastKeyDownRet = ime.processKey(req, false)
+		ime.updateLangStatusIfInputStateChanged(req, resp, beforeASCII, beforeFullShape, hasInputState)
 	}
 	ime.lastKeyUpCode = 0
 	resp.ReturnValue = boolToInt(ime.lastKeyDownRet)
@@ -388,12 +390,33 @@ func (ime *IME) filterKeyUp(req *imecore.Request, resp *imecore.Response) *imeco
 		ime.lastKeyUpCode = 0
 	} else {
 		ime.lastKeyUpCode = req.KeyCode
+		beforeASCII, beforeFullShape, hasInputState := ime.currentInputModeState()
 		ime.lastKeyUpRet = ime.processKey(req, true)
+		ime.updateLangStatusIfInputStateChanged(req, resp, beforeASCII, beforeFullShape, hasInputState)
 	}
 	ime.lastKeyDownCode = 0
 	ime.lastKeySkip = 0
 	resp.ReturnValue = boolToInt(ime.lastKeyUpRet)
 	return resp
+}
+
+func (ime *IME) currentInputModeState() (asciiMode bool, fullShape bool, ok bool) {
+	if ime.backend == nil {
+		return false, false, false
+	}
+	return ime.backend.GetOption("ascii_mode"), ime.backend.GetOption("full_shape"), true
+}
+
+func (ime *IME) updateLangStatusIfInputStateChanged(req *imecore.Request, resp *imecore.Response, beforeASCII, beforeFullShape bool, hasInputState bool) {
+	if !hasInputState || ime.backend == nil {
+		return
+	}
+	afterASCII := ime.backend.GetOption("ascii_mode")
+	afterFullShape := ime.backend.GetOption("full_shape")
+	if afterASCII == beforeASCII && afterFullShape == beforeFullShape {
+		return
+	}
+	ime.updateLangStatus(req, resp)
 }
 
 func (ime *IME) onKeyDown(req *imecore.Request, resp *imecore.Response) *imecore.Response {

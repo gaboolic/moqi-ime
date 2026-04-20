@@ -82,30 +82,31 @@ type testDictEntry struct {
 }
 
 type testBackend struct {
-	session           bool
-	composition       string
-	rawInput          string
-	pageNo            int
-	candidates        []candidateItem
-	commitString      string
-	asciiMode         bool
-	fullShape         bool
-	options           map[string]bool
-	saveOptions       []string
-	schemaSwitches    map[string][]RimeSwitch
-	schemas           []RimeSchema
-	currentSchemaID   string
-	selectSchemaCalls []string
-	pageSizeCalls     []int
-	pageSizeOK        bool
-	redeployCalls     int
-	redeploySharedDir string
-	redeployUserDir   string
-	redeployOK        bool
-	syncCalls         int
-	syncOK            bool
-	setOptionCalls    int
-	getOptionCalls    int
+	session            bool
+	composition        string
+	rawInput           string
+	pageNo             int
+	candidates         []candidateItem
+	commitString       string
+	asciiMode          bool
+	fullShape          bool
+	options            map[string]bool
+	saveOptions        []string
+	schemaSwitches     map[string][]RimeSwitch
+	schemas            []RimeSchema
+	currentSchemaID    string
+	selectSchemaCalls  []string
+	pageSizeCalls      []int
+	pageSizeOK         bool
+	redeployCalls      int
+	redeploySharedDir  string
+	redeployUserDir    string
+	redeployOK         bool
+	syncCalls          int
+	syncOK             bool
+	setOptionCalls     int
+	getOptionCalls     int
+	toggleASCIIOnCtrlA bool
 }
 
 func newTestBackend() *testBackend {
@@ -201,6 +202,10 @@ func (b *testBackend) ProcessKey(req *imecore.Request, translatedKeyCode, modifi
 	if keyCode == vkCapital && modifiers&releaseMask == 0 {
 		b.SetOption("ascii_mode", !b.GetOption("ascii_mode"))
 		return true
+	}
+	if b.toggleASCIIOnCtrlA && keyCode == 'A' && charCode == 1 {
+		b.SetOption("ascii_mode", !b.GetOption("ascii_mode"))
+		return false
 	}
 	if b.asciiMode && b.composition == "" && charCode >= 0x20 {
 		return false
@@ -494,6 +499,39 @@ func TestFilterKeyDownFallsBackToKeyCodeWhenCharCodeMissing(t *testing.T) {
 
 	if resp.ReturnValue != 1 {
 		t.Fatalf("expected keyCode-only N to be handled, got %d", resp.ReturnValue)
+	}
+}
+
+func TestFilterKeyDownEmitsLangButtonUpdateWhenControlHotkeyTogglesAsciiMode(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.toggleASCIIOnCtrlA = true
+
+	iconDir := t.TempDir()
+	for _, name := range []string{"chi.ico", "eng.ico"} {
+		if err := os.WriteFile(filepath.Join(iconDir, name), []byte{}, 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	ime.iconDir = iconDir
+
+	resp := ime.filterKeyDown(&imecore.Request{
+		SeqNum:   3,
+		KeyCode:  int('A'),
+		CharCode: 1,
+	}, imecore.NewResponse(3, true))
+
+	if resp.ReturnValue != 0 {
+		t.Fatalf("expected ctrl+a hotkey to remain unhandled, got %d", resp.ReturnValue)
+	}
+	if len(resp.ChangeButton) != 1 {
+		t.Fatalf("expected one language button update, got %#v", resp.ChangeButton)
+	}
+	if resp.ChangeButton[0].ID != "switch-lang" {
+		t.Fatalf("expected switch-lang button update, got %#v", resp.ChangeButton)
+	}
+	if got := filepath.Base(resp.ChangeButton[0].Icon); got != "eng.ico" {
+		t.Fatalf("expected eng.ico update, got %q", got)
 	}
 }
 
