@@ -99,9 +99,32 @@ func (b *fakeBackend) SelectCandidate(index int) bool {
 	if index < 0 || index >= len(b.state.Candidates) {
 		return false
 	}
+	b.state.CandidateCursor = index
 	b.state.CommitString = b.state.Candidates[index].Text
 	b.state.Composition = ""
 	b.state.Candidates = nil
+	b.state.CandidateCursor = 0
+	return true
+}
+
+func (b *fakeBackend) HighlightCandidate(index int) bool {
+	if index < 0 || index >= len(b.state.Candidates) {
+		return false
+	}
+	b.state.CandidateCursor = index
+	return true
+}
+
+func (b *fakeBackend) ChangePage(backward bool) bool {
+	if backward {
+		if b.state.PageNo == 0 {
+			return false
+		}
+		b.state.PageNo--
+	} else {
+		b.state.PageNo++
+	}
+	b.state.CandidateCursor = 0
 	return true
 }
 

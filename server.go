@@ -254,7 +254,8 @@ func (s *Server) handleRequest(clientID string, req *imecore.Request) *imecore.R
 
 	case "onActivate", "onDeactivate", "filterKeyDown", "onKeyDown",
 		"filterKeyUp", "onKeyUp", "onCommand", "onMenu", "onCompositionTerminated",
-		"onPreservedKey", "onLangProfileActivated":
+		"onPreservedKey", "onLangProfileActivated", "highlightCandidate",
+		"selectCandidate", "changePage":
 		// 转发到输入法服务
 		client, ok := s.clients[clientID]
 		if !ok {

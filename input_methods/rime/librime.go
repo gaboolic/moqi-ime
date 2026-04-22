@@ -167,6 +167,8 @@ var (
 		destroySession        *syscall.LazyProc
 		processKey            *syscall.LazyProc
 		selectCandidate       *syscall.LazyProc
+		highlightCandidate    *syscall.LazyProc
+		changePage            *syscall.LazyProc
 		clearComposition      *syscall.LazyProc
 		getInput              *syscall.LazyProc
 		getCommit             *syscall.LazyProc
@@ -221,6 +223,8 @@ func loadRimeDLL(dllPath string) error {
 		destroySession        *syscall.LazyProc
 		processKey            *syscall.LazyProc
 		selectCandidate       *syscall.LazyProc
+		highlightCandidate    *syscall.LazyProc
+		changePage            *syscall.LazyProc
 		clearComposition      *syscall.LazyProc
 		getInput              *syscall.LazyProc
 		getCommit             *syscall.LazyProc
@@ -260,6 +264,8 @@ func loadRimeDLL(dllPath string) error {
 		destroySession:        dll.NewProc("RimeDestroySession"),
 		processKey:            dll.NewProc("RimeProcessKey"),
 		selectCandidate:       dll.NewProc("RimeSelectCandidateOnCurrentPage"),
+		highlightCandidate:    dll.NewProc("RimeHighlightCandidateOnCurrentPage"),
+		changePage:            dll.NewProc("RimeChangePage"),
 		clearComposition:      dll.NewProc("RimeClearComposition"),
 		getInput:              dll.NewProc("RimeGetInput"),
 		getCommit:             dll.NewProc("RimeGetCommit"),
@@ -741,9 +747,24 @@ func SelectCandidate(sessionId RimeSessionId, index int) bool {
 	return boolResult(r1)
 }
 
-func SelectPage(sessionId RimeSessionId, pageNo int) {
-	_ = sessionId
-	_ = pageNo
+func HighlightCandidate(sessionId RimeSessionId, index int) bool {
+	if sessionId == 0 || index < 0 || !procAvailable(rimeProcs.highlightCandidate) {
+		return false
+	}
+	r1, _, _ := rimeProcs.highlightCandidate.Call(uintptr(sessionId), uintptr(index))
+	return boolResult(r1)
+}
+
+func ChangePage(sessionId RimeSessionId, backward bool) bool {
+	if sessionId == 0 || !procAvailable(rimeProcs.changePage) {
+		return false
+	}
+	var backwardArg uintptr
+	if backward {
+		backwardArg = 1
+	}
+	r1, _, _ := rimeProcs.changePage.Call(uintptr(sessionId), backwardArg)
+	return boolResult(r1)
 }
 
 func DeployConfigFile(filePath, key string) bool {

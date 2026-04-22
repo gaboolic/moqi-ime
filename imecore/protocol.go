@@ -58,6 +58,9 @@ type Request struct {
 	KeyStates         KeyStates
 	CompositionString string
 	CandidateList     []string
+	CandidateIndex    int
+	HasCandidateIndex bool
+	PageBackward      bool
 	ShowCandidates    bool
 	CursorPos         int
 	SelStart          int
@@ -136,6 +139,7 @@ type Response struct {
 	CursorPos          int
 	CompositionCursor  int
 	CandidateCursor    int
+	HasCandidateCursor bool
 	SelStart           int
 	SelEnd             int
 	SetSelKeys         string
@@ -218,6 +222,13 @@ func ParseProtoRequest(msg *moqipb.ClientRequest) *Request {
 	if len(req.Data) == 0 {
 		req.Data = nil
 	}
+	if msg.CandidateIndex != nil {
+		req.CandidateIndex = int(msg.GetCandidateIndex())
+		req.HasCandidateIndex = true
+	}
+	if msg.PageBackward != nil {
+		req.PageBackward = msg.GetPageBackward()
+	}
 
 	return req
 }
@@ -238,7 +249,6 @@ func BuildProtoResponse(clientID string, resp *Response) (*moqipb.ServerResponse
 		ShowCandidates:    resp.ShowCandidates,
 		CursorPos:         int32(resp.CursorPos),
 		CompositionCursor: int32(resp.CompositionCursor),
-		CandidateCursor:   int32(resp.CandidateCursor),
 		SelStart:          int32(resp.SelStart),
 		SelEnd:            int32(resp.SelEnd),
 		SetSelKeys:        resp.SetSelKeys,
@@ -248,6 +258,9 @@ func BuildProtoResponse(clientID string, resp *Response) (*moqipb.ServerResponse
 		RemovePreservedKey: append([]string{},
 			resp.RemovePreservedKey...),
 		Error: resp.Error,
+	}
+	if resp.HasCandidateCursor {
+		msg.CandidateCursor = int32Ptr(int32(resp.CandidateCursor))
 	}
 
 	if ui := customizeUiToProto(resp.CustomizeUI); ui != nil {
@@ -326,6 +339,12 @@ func methodFromProto(method moqipb.Method) string {
 		return "onCompositionTerminated"
 	case moqipb.Method_METHOD_ON_LANG_PROFILE_ACTIVATED:
 		return "onLangProfileActivated"
+	case moqipb.Method_METHOD_HIGHLIGHT_CANDIDATE:
+		return "highlightCandidate"
+	case moqipb.Method_METHOD_SELECT_CANDIDATE:
+		return "selectCandidate"
+	case moqipb.Method_METHOD_CHANGE_PAGE:
+		return "changePage"
 	default:
 		return ""
 	}
@@ -363,6 +382,12 @@ func MethodToProto(method string) moqipb.Method {
 		return moqipb.Method_METHOD_ON_COMPOSITION_TERMINATED
 	case "onLangProfileActivated":
 		return moqipb.Method_METHOD_ON_LANG_PROFILE_ACTIVATED
+	case "highlightCandidate":
+		return moqipb.Method_METHOD_HIGHLIGHT_CANDIDATE
+	case "selectCandidate":
+		return moqipb.Method_METHOD_SELECT_CANDIDATE
+	case "changePage":
+		return moqipb.Method_METHOD_CHANGE_PAGE
 	default:
 		return moqipb.Method_METHOD_UNSPECIFIED
 	}
@@ -629,6 +654,10 @@ func stringPtrOrNil(value string) *string {
 }
 
 func uint32Ptr(value uint32) *uint32 {
+	return &value
+}
+
+func int32Ptr(value int32) *int32 {
 	return &value
 }
 

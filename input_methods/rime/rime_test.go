@@ -86,6 +86,7 @@ type testBackend struct {
 	composition        string
 	rawInput           string
 	pageNo             int
+	candidateCursor    int
 	candidates         []candidateItem
 	commitString       string
 	asciiMode          bool
@@ -107,6 +108,7 @@ type testBackend struct {
 	setOptionCalls     int
 	getOptionCalls     int
 	toggleASCIIOnCtrlA bool
+	disableArrowHandling bool
 }
 
 func newTestBackend() *testBackend {
@@ -185,6 +187,7 @@ func (b *testBackend) ClearComposition() {
 	b.composition = ""
 	b.rawInput = ""
 	b.candidates = nil
+	b.candidateCursor = 0
 	b.commitString = ""
 }
 
@@ -235,6 +238,29 @@ func (b *testBackend) ProcessKey(req *imecore.Request, translatedKeyCode, modifi
 		b.commitString = b.currentCommit()
 		b.composition = ""
 		b.candidates = nil
+		b.candidateCursor = 0
+		return true
+	case vkUp:
+		if len(b.candidates) == 0 {
+			return false
+		}
+		if b.disableArrowHandling {
+			return false
+		}
+		if b.candidateCursor > 0 {
+			b.candidateCursor--
+		}
+		return true
+	case vkDown:
+		if len(b.candidates) == 0 {
+			return false
+		}
+		if b.disableArrowHandling {
+			return false
+		}
+		if b.candidateCursor < len(b.candidates)-1 {
+			b.candidateCursor++
+		}
 		return true
 	}
 
@@ -244,6 +270,7 @@ func (b *testBackend) ProcessKey(req *imecore.Request, translatedKeyCode, modifi
 			b.commitString = b.candidates[index].Text
 			b.composition = ""
 			b.candidates = nil
+			b.candidateCursor = 0
 			return true
 		}
 	}
@@ -275,7 +302,7 @@ func (b *testBackend) State() rimeState {
 		PageNo:          b.pageNo,
 		CursorPos:       len(b.composition),
 		Candidates:      append([]candidateItem(nil), b.candidates...),
-		CandidateCursor: 0,
+		CandidateCursor: b.candidateCursor,
 		SelectKeys:      "1234567890",
 		AsciiMode:       b.asciiMode,
 		FullShape:       b.fullShape,
@@ -355,9 +382,32 @@ func (b *testBackend) SelectCandidate(index int) bool {
 	if index < 0 || index >= len(b.candidates) {
 		return false
 	}
+	b.candidateCursor = index
 	b.commitString = b.candidates[index].Text
 	b.composition = ""
 	b.candidates = nil
+	b.candidateCursor = 0
+	return true
+}
+
+func (b *testBackend) HighlightCandidate(index int) bool {
+	if index < 0 || index >= len(b.candidates) {
+		return false
+	}
+	b.candidateCursor = index
+	return true
+}
+
+func (b *testBackend) ChangePage(backward bool) bool {
+	if backward {
+		if b.pageNo == 0 {
+			return false
+		}
+		b.pageNo--
+	} else {
+		b.pageNo++
+	}
+	b.candidateCursor = 0
 	return true
 }
 
@@ -372,6 +422,7 @@ func (b *testBackend) refreshCandidates() {
 	code := strings.ReplaceAll(b.composition, "'", "")
 	if code == "" {
 		b.candidates = nil
+		b.candidateCursor = 0
 		return
 	}
 	results := make([]candidateItem, 0, 9)
@@ -405,6 +456,14 @@ func (b *testBackend) refreshCandidates() {
 		results = []candidateItem{{Text: code}}
 	}
 	b.candidates = results
+	if b.candidateCursor < 0 {
+		b.candidateCursor = 0
+	}
+	if len(b.candidates) == 0 {
+		b.candidateCursor = 0
+	} else if b.candidateCursor >= len(b.candidates) {
+		b.candidateCursor = len(b.candidates) - 1
+	}
 }
 
 func testDictionary() []testDictEntry {
@@ -566,6 +625,129 @@ func TestOnKeyDownReflectsBackendStateAfterFilter(t *testing.T) {
 	}
 	if len(resp.CandidateList) == 0 || resp.CandidateList[0] != "你" {
 		t.Fatalf("expected first exact candidate 你, got %v", resp.CandidateList)
+	}
+}
+
+func TestOnKeyDownDownArrowMovesCandidateCursor(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "ni"
+	backend.candidates = []candidateItem{{Text: "你"}, {Text: "呢"}, {Text: "泥"}}
+	ime.keyComposing = true
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum:  1,
+		KeyCode: vkDown,
+	}, imecore.NewResponse(1, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected filterKeyDown down arrow handled, got %#v", filterResp)
+	}
+
+	resp := ime.onKeyDown(&imecore.Request{
+		SeqNum:  2,
+		KeyCode: vkDown,
+	}, imecore.NewResponse(2, true))
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected onKeyDown down arrow handled, got %#v", resp)
+	}
+	if !resp.HasCandidateCursor || resp.CandidateCursor != 1 {
+		t.Fatalf("expected candidate cursor 1, got %#v", resp)
+	}
+}
+
+func TestOnKeyDownDownArrowFallsBackToExplicitHighlight(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "ni"
+	backend.candidates = []candidateItem{{Text: "你"}, {Text: "呢"}, {Text: "泥"}}
+	backend.disableArrowHandling = true
+	ime.keyComposing = true
+
+	filterResp := ime.filterKeyDown(&imecore.Request{
+		SeqNum:  1,
+		KeyCode: vkDown,
+	}, imecore.NewResponse(1, true))
+	if filterResp.ReturnValue != 1 {
+		t.Fatalf("expected filterKeyDown down arrow handled by fallback, got %#v", filterResp)
+	}
+
+	resp := ime.onKeyDown(&imecore.Request{
+		SeqNum:  2,
+		KeyCode: vkDown,
+	}, imecore.NewResponse(2, true))
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected onKeyDown down arrow handled by fallback, got %#v", resp)
+	}
+	if !resp.HasCandidateCursor || resp.CandidateCursor != 1 {
+		t.Fatalf("expected candidate cursor 1 after fallback, got %#v", resp)
+	}
+}
+
+func TestHighlightCandidateRequestUpdatesVisibleCursor(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "ni"
+	backend.candidates = []candidateItem{{Text: "你"}, {Text: "呢"}, {Text: "泥"}}
+	ime.keyComposing = true
+
+	resp := ime.HandleRequest(&imecore.Request{
+		Method:            "highlightCandidate",
+		SeqNum:            1,
+		CandidateIndex:    2,
+		HasCandidateIndex: true,
+	})
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected highlightCandidate handled, got %#v", resp)
+	}
+	if !resp.HasCandidateCursor || resp.CandidateCursor != 2 {
+		t.Fatalf("expected candidate cursor 2, got %#v", resp)
+	}
+}
+
+func TestSelectCandidateRequestCommitsCandidate(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "ni"
+	backend.candidates = []candidateItem{{Text: "你"}, {Text: "呢"}, {Text: "泥"}}
+	ime.keyComposing = true
+
+	resp := ime.HandleRequest(&imecore.Request{
+		Method:            "selectCandidate",
+		SeqNum:            1,
+		CandidateIndex:    1,
+		HasCandidateIndex: true,
+	})
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected selectCandidate handled, got %#v", resp)
+	}
+	if resp.CommitString != "呢" {
+		t.Fatalf("expected commit 呢, got %#v", resp)
+	}
+	if resp.ShowCandidates {
+		t.Fatalf("expected candidates hidden after selection, got %#v", resp)
+	}
+}
+
+func TestChangePageRequestDelegatesToBackend(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	backend := ime.backend.(*testBackend)
+	backend.composition = "ni"
+	backend.candidates = []candidateItem{{Text: "你"}, {Text: "呢"}}
+	ime.keyComposing = true
+
+	resp := ime.HandleRequest(&imecore.Request{
+		Method:       "changePage",
+		SeqNum:       1,
+		PageBackward: false,
+	})
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected changePage handled, got %#v", resp)
+	}
+	if backend.pageNo != 1 {
+		t.Fatalf("expected pageNo 1, got %d", backend.pageNo)
+	}
+	if !resp.HasCandidateCursor || resp.CandidateCursor != 0 {
+		t.Fatalf("expected candidate cursor reset to 0, got %#v", resp)
 	}
 }
 

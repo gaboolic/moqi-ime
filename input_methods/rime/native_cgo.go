@@ -358,3 +358,25 @@ func (b *nativeBackend) SelectCandidate(index int) bool {
 	}
 	return SelectCandidate(b.sessionID, index)
 }
+
+func (b *nativeBackend) HighlightCandidate(index int) bool {
+	if !rimeRuntime.tryBeginOperation() {
+		return false
+	}
+	defer rimeRuntime.endOperation()
+	if !b.ensureSessionLocked() {
+		return false
+	}
+	return HighlightCandidate(b.sessionID, index)
+}
+
+func (b *nativeBackend) ChangePage(backward bool) bool {
+	if !rimeRuntime.tryBeginOperation() {
+		return false
+	}
+	defer rimeRuntime.endOperation()
+	if !b.ensureSessionLocked() {
+		return false
+	}
+	return ChangePage(b.sessionID, backward)
+}

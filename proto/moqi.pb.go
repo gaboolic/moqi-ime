@@ -40,6 +40,9 @@ const (
 	Method_METHOD_ON_KEYBOARD_STATUS_CHANGED Method = 13
 	Method_METHOD_ON_COMPOSITION_TERMINATED  Method = 14
 	Method_METHOD_ON_LANG_PROFILE_ACTIVATED  Method = 15
+	Method_METHOD_HIGHLIGHT_CANDIDATE        Method = 16
+	Method_METHOD_SELECT_CANDIDATE           Method = 17
+	Method_METHOD_CHANGE_PAGE                Method = 18
 )
 
 // Enum value maps for Method.
@@ -61,6 +64,9 @@ var (
 		13: "METHOD_ON_KEYBOARD_STATUS_CHANGED",
 		14: "METHOD_ON_COMPOSITION_TERMINATED",
 		15: "METHOD_ON_LANG_PROFILE_ACTIVATED",
+		16: "METHOD_HIGHLIGHT_CANDIDATE",
+		17: "METHOD_SELECT_CANDIDATE",
+		18: "METHOD_CHANGE_PAGE",
 	}
 	Method_value = map[string]int32{
 		"METHOD_UNSPECIFIED":                0,
@@ -79,6 +85,9 @@ var (
 		"METHOD_ON_KEYBOARD_STATUS_CHANGED": 13,
 		"METHOD_ON_COMPOSITION_TERMINATED":  14,
 		"METHOD_ON_LANG_PROFILE_ACTIVATED":  15,
+		"METHOD_HIGHLIGHT_CANDIDATE":        16,
+		"METHOD_SELECT_CANDIDATE":           17,
+		"METHOD_CHANGE_PAGE":                18,
 	}
 )
 
@@ -962,6 +971,8 @@ type ClientRequest struct {
 	CompartmentGuid   *string                `protobuf:"bytes,21,opt,name=compartment_guid,json=compartmentGuid,proto3,oneof" json:"compartment_guid,omitempty"`
 	IsKeyboardOpen    bool                   `protobuf:"varint,22,opt,name=is_keyboard_open,json=isKeyboardOpen,proto3" json:"is_keyboard_open,omitempty"`
 	ClientId          *string                `protobuf:"bytes,23,opt,name=client_id,json=clientId,proto3,oneof" json:"client_id,omitempty"`
+	CandidateIndex    *int32                 `protobuf:"varint,24,opt,name=candidate_index,json=candidateIndex,proto3,oneof" json:"candidate_index,omitempty"`
+	PageBackward      *bool                  `protobuf:"varint,25,opt,name=page_backward,json=pageBackward,proto3,oneof" json:"page_backward,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -1157,6 +1168,20 @@ func (x *ClientRequest) GetClientId() string {
 	return ""
 }
 
+func (x *ClientRequest) GetCandidateIndex() int32 {
+	if x != nil && x.CandidateIndex != nil {
+		return *x.CandidateIndex
+	}
+	return 0
+}
+
+func (x *ClientRequest) GetPageBackward() bool {
+	if x != nil && x.PageBackward != nil {
+		return *x.PageBackward
+	}
+	return false
+}
+
 type ServerResponse struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	ClientId           *string                `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3,oneof" json:"client_id,omitempty"`
@@ -1170,7 +1195,7 @@ type ServerResponse struct {
 	ShowCandidates     bool                   `protobuf:"varint,9,opt,name=show_candidates,json=showCandidates,proto3" json:"show_candidates,omitempty"`
 	CursorPos          int32                  `protobuf:"varint,10,opt,name=cursor_pos,json=cursorPos,proto3" json:"cursor_pos,omitempty"`
 	CompositionCursor  int32                  `protobuf:"varint,11,opt,name=composition_cursor,json=compositionCursor,proto3" json:"composition_cursor,omitempty"`
-	CandidateCursor    int32                  `protobuf:"varint,12,opt,name=candidate_cursor,json=candidateCursor,proto3" json:"candidate_cursor,omitempty"`
+	CandidateCursor    *int32                 `protobuf:"varint,12,opt,name=candidate_cursor,json=candidateCursor,proto3,oneof" json:"candidate_cursor,omitempty"`
 	SelStart           int32                  `protobuf:"varint,13,opt,name=sel_start,json=selStart,proto3" json:"sel_start,omitempty"`
 	SelEnd             int32                  `protobuf:"varint,14,opt,name=sel_end,json=selEnd,proto3" json:"sel_end,omitempty"`
 	SetSelKeys         string                 `protobuf:"bytes,15,opt,name=set_sel_keys,json=setSelKeys,proto3" json:"set_sel_keys,omitempty"`
@@ -1298,8 +1323,8 @@ func (x *ServerResponse) GetCompositionCursor() int32 {
 }
 
 func (x *ServerResponse) GetCandidateCursor() int32 {
-	if x != nil {
-		return x.CandidateCursor
+	if x != nil && x.CandidateCursor != nil {
+		return *x.CandidateCursor
 	}
 	return 0
 }
@@ -1496,7 +1521,7 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x10TrayNotification\x12\x14\n" +
 	"\x05title\x18\x01 \x01(\tR\x05title\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x127\n" +
-	"\x04icon\x18\x03 \x01(\x0e2#.moqi.protocol.TrayNotificationIconR\x04icon\"\xad\a\n" +
+	"\x04icon\x18\x03 \x01(\x0e2#.moqi.protocol.TrayNotificationIconR\x04icon\"\xab\b\n" +
 	"\rClientRequest\x12\x17\n" +
 	"\aseq_num\x18\x01 \x01(\rR\x06seqNum\x12-\n" +
 	"\x06method\x18\x02 \x01(\x0e2\x15.moqi.protocol.MethodR\x06method\x12\x17\n" +
@@ -1526,7 +1551,9 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x12preserved_key_guid\x18\x14 \x01(\tH\x03R\x10preservedKeyGuid\x88\x01\x01\x12.\n" +
 	"\x10compartment_guid\x18\x15 \x01(\tH\x04R\x0fcompartmentGuid\x88\x01\x01\x12(\n" +
 	"\x10is_keyboard_open\x18\x16 \x01(\bR\x0eisKeyboardOpen\x12 \n" +
-	"\tclient_id\x18\x17 \x01(\tH\x05R\bclientId\x88\x01\x01B\a\n" +
+	"\tclient_id\x18\x17 \x01(\tH\x05R\bclientId\x88\x01\x01\x12,\n" +
+	"\x0fcandidate_index\x18\x18 \x01(\x05H\x06R\x0ecandidateIndex\x88\x01\x01\x12(\n" +
+	"\rpage_backward\x18\x19 \x01(\bH\aR\fpageBackward\x88\x01\x01B\a\n" +
 	"\x05_guidB\f\n" +
 	"\n" +
 	"_button_idB\r\n" +
@@ -1534,7 +1561,9 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x13_preserved_key_guidB\x13\n" +
 	"\x11_compartment_guidB\f\n" +
 	"\n" +
-	"_client_id\"\x9c\n" +
+	"_client_idB\x12\n" +
+	"\x10_candidate_indexB\x10\n" +
+	"\x0e_page_backward\"\xb6\n" +
 	"\n" +
 	"\x0eServerResponse\x12 \n" +
 	"\tclient_id\x18\x01 \x01(\tH\x00R\bclientId\x88\x01\x01\x12\x17\n" +
@@ -1550,30 +1579,31 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\n" +
 	"cursor_pos\x18\n" +
 	" \x01(\x05R\tcursorPos\x12-\n" +
-	"\x12composition_cursor\x18\v \x01(\x05R\x11compositionCursor\x12)\n" +
-	"\x10candidate_cursor\x18\f \x01(\x05R\x0fcandidateCursor\x12\x1b\n" +
+	"\x12composition_cursor\x18\v \x01(\x05R\x11compositionCursor\x12.\n" +
+	"\x10candidate_cursor\x18\f \x01(\x05H\x01R\x0fcandidateCursor\x88\x01\x01\x12\x1b\n" +
 	"\tsel_start\x18\r \x01(\x05R\bselStart\x12\x17\n" +
 	"\asel_end\x18\x0e \x01(\x05R\x06selEnd\x12 \n" +
 	"\fset_sel_keys\x18\x0f \x01(\tR\n" +
 	"setSelKeys\x12B\n" +
-	"\fcustomize_ui\x18\x10 \x01(\v2\x1a.moqi.protocol.CustomizeUiH\x01R\vcustomizeUi\x88\x01\x01\x128\n" +
+	"\fcustomize_ui\x18\x10 \x01(\v2\x1a.moqi.protocol.CustomizeUiH\x02R\vcustomizeUi\x88\x01\x01\x128\n" +
 	"\n" +
 	"add_button\x18\x11 \x03(\v2\x19.moqi.protocol.ButtonInfoR\taddButton\x12#\n" +
 	"\rremove_button\x18\x12 \x03(\tR\fremoveButton\x12>\n" +
 	"\rchange_button\x18\x13 \x03(\v2\x19.moqi.protocol.ButtonInfoR\fchangeButton\x12D\n" +
-	"\fshow_message\x18\x14 \x01(\v2\x1c.moqi.protocol.MessageWindowH\x02R\vshowMessage\x88\x01\x01\x12!\n" +
+	"\fshow_message\x18\x14 \x01(\v2\x1c.moqi.protocol.MessageWindowH\x03R\vshowMessage\x88\x01\x01\x12!\n" +
 	"\fhide_message\x18\x15 \x01(\bR\vhideMessage\x12#\n" +
 	"\ropen_keyboard\x18\x16 \x01(\bR\fopenKeyboard\x12G\n" +
 	"\x11add_preserved_key\x18\x17 \x03(\v2\x1b.moqi.protocol.PreservedKeyR\x0faddPreservedKey\x120\n" +
 	"\x14remove_preserved_key\x18\x18 \x03(\tR\x12removePreservedKey\x12\x14\n" +
 	"\x05error\x18\x19 \x01(\tR\x05error\x12Q\n" +
-	"\x11tray_notification\x18\x1a \x01(\v2\x1f.moqi.protocol.TrayNotificationH\x03R\x10trayNotification\x88\x01\x01\x12J\n" +
+	"\x11tray_notification\x18\x1a \x01(\v2\x1f.moqi.protocol.TrayNotificationH\x04R\x10trayNotification\x88\x01\x01\x12J\n" +
 	"\x11candidate_entries\x18\x1b \x03(\v2\x1d.moqi.protocol.CandidateEntryR\x10candidateEntriesB\f\n" +
 	"\n" +
-	"_client_idB\x0f\n" +
+	"_client_idB\x13\n" +
+	"\x11_candidate_cursorB\x0f\n" +
 	"\r_customize_uiB\x0f\n" +
 	"\r_show_messageB\x14\n" +
-	"\x12_tray_notification*\xb7\x03\n" +
+	"\x12_tray_notification*\x8c\x04\n" +
 	"\x06Method\x12\x16\n" +
 	"\x12METHOD_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vMETHOD_INIT\x10\x01\x12\x10\n" +
@@ -1591,7 +1621,10 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x1dMETHOD_ON_COMPARTMENT_CHANGED\x10\f\x12%\n" +
 	"!METHOD_ON_KEYBOARD_STATUS_CHANGED\x10\r\x12$\n" +
 	" METHOD_ON_COMPOSITION_TERMINATED\x10\x0e\x12$\n" +
-	" METHOD_ON_LANG_PROFILE_ACTIVATED\x10\x0f*o\n" +
+	" METHOD_ON_LANG_PROFILE_ACTIVATED\x10\x0f\x12\x1e\n" +
+	"\x1aMETHOD_HIGHLIGHT_CANDIDATE\x10\x10\x12\x1b\n" +
+	"\x17METHOD_SELECT_CANDIDATE\x10\x11\x12\x16\n" +
+	"\x12METHOD_CHANGE_PAGE\x10\x12*o\n" +
 	"\n" +
 	"ButtonType\x12\x1b\n" +
 	"\x17BUTTON_TYPE_UNSPECIFIED\x10\x00\x12\x16\n" +

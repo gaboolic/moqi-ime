@@ -49,6 +49,27 @@ func TestParseProtoRequestAcceptsGuidStringID(t *testing.T) {
 	}
 }
 
+func TestParseProtoRequestMapsCandidateInteractionFields(t *testing.T) {
+	index := int32(4)
+	backward := true
+	req := ParseProtoRequest(&moqipb.ClientRequest{
+		Method:         moqipb.Method_METHOD_HIGHLIGHT_CANDIDATE,
+		SeqNum:         2,
+		CandidateIndex: &index,
+		PageBackward:   &backward,
+	})
+
+	if req.Method != "highlightCandidate" {
+		t.Fatalf("expected highlightCandidate method, got %q", req.Method)
+	}
+	if !req.HasCandidateIndex || req.CandidateIndex != 4 {
+		t.Fatalf("expected candidate index 4 present, got %+v", req)
+	}
+	if !req.PageBackward {
+		t.Fatalf("expected pageBackward=true, got false")
+	}
+}
+
 func TestBuildProtoResponseIncludesClearedCompositionState(t *testing.T) {
 	resp := NewResponse(1, true)
 	resp.ReturnValue = 1
@@ -119,5 +140,37 @@ func TestBuildProtoResponseIncludesCustomizeUIBooleans(t *testing.T) {
 	}
 	if rules[1].GetOpen() != "(" || rules[1].GetClose() != ")" {
 		t.Fatalf("unexpected second autoPairRule: %#v", rules[1])
+	}
+}
+
+func TestBuildProtoResponseOmitsUnsetCandidateCursor(t *testing.T) {
+	resp := NewResponse(3, true)
+	resp.ShowCandidates = true
+	resp.CandidateList = []string{"你"}
+
+	msg, err := BuildProtoResponse("client-1", resp)
+	if err != nil {
+		t.Fatalf("BuildProtoResponse failed: %v", err)
+	}
+
+	if msg.CandidateCursor != nil {
+		t.Fatalf("expected candidateCursor to be omitted, got %#v", msg.CandidateCursor)
+	}
+}
+
+func TestBuildProtoResponseIncludesCandidateCursorWhenPresent(t *testing.T) {
+	resp := NewResponse(4, true)
+	resp.ShowCandidates = true
+	resp.CandidateList = []string{"你"}
+	resp.CandidateCursor = 2
+	resp.HasCandidateCursor = true
+
+	msg, err := BuildProtoResponse("client-1", resp)
+	if err != nil {
+		t.Fatalf("BuildProtoResponse failed: %v", err)
+	}
+
+	if msg.CandidateCursor == nil || msg.GetCandidateCursor() != 2 {
+		t.Fatalf("expected candidateCursor=2, got %#v", msg.CandidateCursor)
 	}
 }

@@ -168,6 +168,8 @@ type rimeBackend interface {
 	SelectSchema(schemaID string) bool
 	SetCandidatePageSize(pageSize int) bool
 	SelectCandidate(index int) bool
+	HighlightCandidate(index int) bool
+	ChangePage(backward bool) bool
 }
 
 type IME struct {
@@ -327,6 +329,12 @@ func (ime *IME) HandleRequest(req *imecore.Request) *imecore.Response {
 		return ime.onCommand(req, resp)
 	case "onMenu":
 		return ime.onMenu(req, resp)
+	case "highlightCandidate":
+		return ime.highlightCandidate(req, resp)
+	case "selectCandidate":
+		return ime.selectCandidate(req, resp)
+	case "changePage":
+		return ime.changePage(req, resp)
 	default:
 		resp.ReturnValue = 0
 		return resp
@@ -466,6 +474,21 @@ func (ime *IME) onKeyUp(req *imecore.Request, resp *imecore.Response) *imecore.R
 		return resp
 	}
 	resp.ReturnValue = boolToInt(ime.onKey(req, resp))
+	return resp
+}
+
+func (ime *IME) highlightCandidate(req *imecore.Request, resp *imecore.Response) *imecore.Response {
+	resp.ReturnValue = boolToInt(ime.applyCandidateHighlight(req, resp))
+	return resp
+}
+
+func (ime *IME) selectCandidate(req *imecore.Request, resp *imecore.Response) *imecore.Response {
+	resp.ReturnValue = boolToInt(ime.applyCandidateSelection(req, resp))
+	return resp
+}
+
+func (ime *IME) changePage(req *imecore.Request, resp *imecore.Response) *imecore.Response {
+	resp.ReturnValue = boolToInt(ime.applyCandidatePageChange(req, resp))
 	return resp
 }
 
@@ -935,9 +958,19 @@ func (ime *IME) processKey(req *imecore.Request, isUp bool) bool {
 	if !isUp {
 		ime.keyComposing = ime.isComposing()
 	}
+	shouldFallbackArrowNavigation := !isUp && req != nil &&
+		(req.KeyCode == vkUp || req.KeyCode == vkDown)
+	var beforeState rimeState
+	if shouldFallbackArrowNavigation {
+		beforeState = ime.backend.State()
+	}
 	translatedKeyCode := translateKeyCode(req)
 	modifiers := translateModifiers(req, isUp)
 	backendRet := ime.backend.ProcessKey(req, translatedKeyCode, modifiers)
+	if shouldFallbackArrowNavigation && modifiers == 0 &&
+		ime.applyArrowNavigationFallback(req.KeyCode, beforeState) {
+		backendRet = true
+	}
 	if !isUp {
 		ime.updateTrackedRawInput(req, backendRet)
 	}
@@ -962,6 +995,39 @@ func (ime *IME) processKey(req *imecore.Request, isUp bool) bool {
 	}
 	ime.logShortcutTrace(req, isUp, translatedKeyCode, modifiers, backendRet, handled)
 	return false
+}
+
+func (ime *IME) applyArrowNavigationFallback(keyCode int, beforeState rimeState) bool {
+	if ime.backend == nil || len(beforeState.Candidates) == 0 {
+		return false
+	}
+	afterState := ime.backend.State()
+	if len(afterState.Candidates) == 0 {
+		return false
+	}
+	if afterState.CandidateCursor != beforeState.CandidateCursor {
+		return false
+	}
+	target := beforeState.CandidateCursor
+	if target < 0 {
+		target = 0
+	}
+	switch keyCode {
+	case vkUp:
+		if target > 0 {
+			target--
+		}
+	case vkDown:
+		if target < len(afterState.Candidates)-1 {
+			target++
+		}
+	default:
+		return false
+	}
+	if target == afterState.CandidateCursor {
+		return false
+	}
+	return ime.backend.HighlightCandidate(target)
 }
 
 func (ime *IME) shouldSyncSharedInputStateAfterProcessKey(req *imecore.Request, isUp bool) bool {
@@ -1364,6 +1430,7 @@ func (ime *IME) fillAIResponse(resp *imecore.Response) {
 	resp.CandidateList = combined
 	if len(combined) == 0 {
 		resp.CandidateCursor = 0
+		resp.HasCandidateCursor = false
 		resp.ShowCandidates = false
 	} else {
 		if ime.aiCandidateCursor < 0 {
@@ -1373,6 +1440,7 @@ func (ime *IME) fillAIResponse(resp *imecore.Response) {
 			ime.aiCandidateCursor = len(combined) - 1
 		}
 		resp.CandidateCursor = ime.aiCandidateCursor
+		resp.HasCandidateCursor = true
 		resp.ShowCandidates = true
 		if len(combined) <= len(aiSelectKeys) {
 			selKeys := aiSelectKeys[:len(combined)]
@@ -1417,6 +1485,120 @@ func (ime *IME) commitBackendOverlayCandidate(resp *imecore.Response, backendInd
 	}
 	debugLogf("backend overlay select succeeded backendIndex=%d", backendIndex)
 	resp.ReturnValue = boolToInt(ime.onKey(&imecore.Request{}, resp))
+	return true
+}
+
+func (ime *IME) highlightBackendCandidate(resp *imecore.Response, backendIndex int) bool {
+	if resp == nil || backendIndex < 0 || backendIndex >= 9 {
+		return false
+	}
+	if ime.backend == nil || !ime.backendReady() {
+		return false
+	}
+	if !ime.backend.HighlightCandidate(backendIndex) {
+		return false
+	}
+	ime.fillResponseFromCurrentState(resp)
+	return true
+}
+
+func (ime *IME) selectBackendCandidate(resp *imecore.Response, backendIndex int) bool {
+	if resp == nil || backendIndex < 0 || backendIndex >= 9 {
+		return false
+	}
+	ime.resetAIState()
+	ime.resetCustomPhraseOverlay()
+	if ime.backend == nil || !ime.backendReady() {
+		return false
+	}
+	if !ime.backend.SelectCandidate(backendIndex) {
+		return false
+	}
+	resp.ReturnValue = boolToInt(ime.onKey(&imecore.Request{}, resp))
+	return true
+}
+
+func (ime *IME) applyCandidateHighlight(req *imecore.Request, resp *imecore.Response) bool {
+	if req == nil || resp == nil || !req.HasCandidateIndex || req.CandidateIndex < 0 {
+		return false
+	}
+	index := req.CandidateIndex
+	if ime.aiActive {
+		totalCandidates, _ := ime.visibleAIOverlayCounts()
+		if index >= totalCandidates {
+			return false
+		}
+		ime.aiCandidateCursor = index
+		ime.fillAIResponse(resp)
+		return true
+	}
+	if _, customCandidates, backendIndexes, ok := ime.currentCustomPhraseOverlay(); ok {
+		total := len(customCandidates) + len(backendIndexes)
+		if index >= total {
+			return false
+		}
+		ime.customPhraseCursor = index
+		ime.fillResponseFromCurrentState(resp)
+		return true
+	}
+	return ime.highlightBackendCandidate(resp, index)
+}
+
+func (ime *IME) applyCandidateSelection(req *imecore.Request, resp *imecore.Response) bool {
+	if req == nil || resp == nil || !req.HasCandidateIndex || req.CandidateIndex < 0 {
+		return false
+	}
+	index := req.CandidateIndex
+	if ime.aiActive {
+		totalCandidates, aiCandidates := ime.visibleAIOverlayCounts()
+		if index >= totalCandidates {
+			return false
+		}
+		ime.aiCandidateCursor = index
+		if index < aiCandidates {
+			ime.commitAICandidate(resp)
+			return true
+		}
+		return ime.commitBackendOverlayCandidate(resp, index-aiCandidates)
+	}
+	if _, customCandidates, backendIndexes, ok := ime.currentCustomPhraseOverlay(); ok {
+		total := len(customCandidates) + len(backendIndexes)
+		if index >= total {
+			return false
+		}
+		ime.customPhraseCursor = index
+		if index < len(customCandidates) {
+			ime.commitCustomPhraseCandidate(resp, customCandidates[index])
+			return true
+		}
+		backendListIndex := index - len(customCandidates)
+		if backendListIndex < 0 || backendListIndex >= len(backendIndexes) {
+			return false
+		}
+		return ime.commitBackendOverlayCandidate(resp, backendIndexes[backendListIndex])
+	}
+	return ime.selectBackendCandidate(resp, index)
+}
+
+func (ime *IME) applyCandidatePageChange(req *imecore.Request, resp *imecore.Response) bool {
+	if req == nil || resp == nil {
+		return false
+	}
+	if ime.aiActive {
+		ime.fillAIResponse(resp)
+		return false
+	}
+	if _, _, _, ok := ime.currentCustomPhraseOverlay(); ok {
+		ime.fillResponseFromCurrentState(resp)
+		return false
+	}
+	if ime.backend == nil || !ime.backendReady() {
+		return false
+	}
+	if !ime.backend.ChangePage(req.PageBackward) {
+		return false
+	}
+	ime.fillResponseFromCurrentState(resp)
 	return true
 }
 
@@ -1733,6 +1915,7 @@ func (ime *IME) clearResponse(resp *imecore.Response) {
 	resp.CandidateList = []string{}
 	resp.CandidateEntries = []imecore.CandidateEntry{}
 	resp.CandidateCursor = 0
+	resp.HasCandidateCursor = false
 	resp.ShowCandidates = false
 }
 
@@ -1804,6 +1987,7 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 		} else {
 			resp.CandidateCursor = state.CandidateCursor
 		}
+		resp.HasCandidateCursor = true
 		resp.ShowCandidates = true
 		if len(customPhraseCandidates) > 0 && len(resp.CandidateList) <= len(aiSelectKeys) {
 			selKeys := aiSelectKeys[:len(resp.CandidateList)]
@@ -1816,6 +2000,7 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 		resp.CandidateList = []string{}
 		resp.CandidateEntries = []imecore.CandidateEntry{}
 		resp.CandidateCursor = 0
+		resp.HasCandidateCursor = false
 		resp.ShowCandidates = false
 	}
 	ime.keyComposing = true
