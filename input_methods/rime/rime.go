@@ -87,6 +87,12 @@ const (
 	ID_APPEARANCE_PER_ROW_5                    = 181
 	ID_APPEARANCE_PER_ROW_7                    = 182
 	ID_APPEARANCE_PER_ROW_9                    = 183
+	ID_APPEARANCE_SPACING_0                    = 184
+	ID_APPEARANCE_SPACING_10                   = 185
+	ID_APPEARANCE_SPACING_20                   = 186
+	ID_APPEARANCE_SPACING_30                   = 187
+	ID_APPEARANCE_SPACING_40                   = 188
+	ID_APPEARANCE_SPACING_50                   = 189
 	ID_APPEARANCE_CAND_COUNT_3                 = 190
 	ID_APPEARANCE_CAND_COUNT_5                 = 191
 	ID_APPEARANCE_CAND_COUNT_7                 = 192
@@ -114,6 +120,7 @@ type Style struct {
 	CandidateHighlightTextColor    string
 	CandidateCommentColor          string
 	CandidateCommentHighlightColor string
+	CandidateSpacing               int
 	FontFace                       string
 	FontPoint                      int
 	CandidateCommentFontFace       string
@@ -230,6 +237,7 @@ func defaultStyle() Style {
 		CandidateHighlightTextColor:    "#000000",
 		CandidateCommentColor:          "#000000",
 		CandidateCommentHighlightColor: "#000000",
+		CandidateSpacing:               20,
 		FontFace:                       "Segoe UI",
 		FontPoint:                      20,
 		CandidateCommentFontFace:       "Consolas",
@@ -2385,6 +2393,14 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 				{"id": ID_APPEARANCE_PER_ROW_5, "text": "5", "checked": ime.effectiveCandidatePerRow() == 5, "enabled": ime.isHorizontalCandidateLayout()},
 				{"id": ID_APPEARANCE_PER_ROW_7, "text": "7", "checked": ime.effectiveCandidatePerRow() == 7, "enabled": ime.isHorizontalCandidateLayout()},
 				{"id": ID_APPEARANCE_PER_ROW_9, "text": "9", "checked": ime.effectiveCandidatePerRow() == 9, "enabled": ime.isHorizontalCandidateLayout()},
+			}},
+			{"text": "候选间距", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_SPACING_0, "text": "0", "checked": ime.style.CandidateSpacing == 0},
+				{"id": ID_APPEARANCE_SPACING_10, "text": "10", "checked": ime.style.CandidateSpacing == 10},
+				{"id": ID_APPEARANCE_SPACING_20, "text": "20", "checked": ime.style.CandidateSpacing == 20},
+				{"id": ID_APPEARANCE_SPACING_30, "text": "30", "checked": ime.style.CandidateSpacing == 30},
+				{"id": ID_APPEARANCE_SPACING_40, "text": "40", "checked": ime.style.CandidateSpacing == 40},
+				{"id": ID_APPEARANCE_SPACING_50, "text": "50", "checked": ime.style.CandidateSpacing == 50},
 			}},
 			{"text": "总候选数量", "submenu": []map[string]interface{}{
 				{"id": ID_APPEARANCE_CAND_COUNT_3, "text": "3", "checked": ime.candidateCount() == 3},

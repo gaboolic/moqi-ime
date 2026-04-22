@@ -13,27 +13,28 @@ const appearanceConfigFileName = "appearance_config.json"
 const rimeDefaultCustomConfigFileName = "default.custom.yaml"
 
 type appearanceConfig struct {
-	CandidateTheme              *string         `json:"candidate_theme,omitempty"`
-	FontFace                    *string         `json:"font_face,omitempty"`
-	FontPoint                   *int            `json:"font_point,omitempty"`
-	CandidateCommentFontFace    *string         `json:"candidate_comment_font_face,omitempty"`
-	CandidateCommentFontPoint   *int            `json:"candidate_comment_font_point,omitempty"`
-	InlinePreedit               *bool           `json:"inline_preedit,omitempty"`
-	CandidatePerRow             *int            `json:"candidate_per_row,omitempty"`
-	CandidateCount              *int            `json:"candidate_count,omitempty"`
-	CandidateBackgroundColor    *string         `json:"candidate_background_color,omitempty"`
-	CandidateHighlightColor     *string         `json:"candidate_highlight_color,omitempty"`
-	CandidateTextColor          *string         `json:"candidate_text_color,omitempty"`
-	CandidateHighlightTextColor *string         `json:"candidate_highlight_text_color,omitempty"`
-	CandidateCommentColor       *string         `json:"candidate_comment_color,omitempty"`
-	CandidateCommentHighlightColor *string      `json:"candidate_comment_highlight_color,omitempty"`
-	InputStateShared            *bool           `json:"input_state_shared,omitempty"`
-	SharedOptions               map[string]bool `json:"shared_options,omitempty"`
-	SharedAsciiMode             *bool           `json:"shared_ascii_mode,omitempty"`
-	SharedFullShape             *bool           `json:"shared_full_shape,omitempty"`
-	SharedTraditionalization    *bool           `json:"shared_traditionalization,omitempty"`
-	AutoPairQuotes              *bool           `json:"auto_pair_quotes,omitempty"`
-	SemicolonSelectSecond       *bool           `json:"semicolon_select_second,omitempty"`
+	CandidateTheme                 *string         `json:"candidate_theme,omitempty"`
+	FontFace                       *string         `json:"font_face,omitempty"`
+	FontPoint                      *int            `json:"font_point,omitempty"`
+	CandidateCommentFontFace       *string         `json:"candidate_comment_font_face,omitempty"`
+	CandidateCommentFontPoint      *int            `json:"candidate_comment_font_point,omitempty"`
+	InlinePreedit                  *bool           `json:"inline_preedit,omitempty"`
+	CandidatePerRow                *int            `json:"candidate_per_row,omitempty"`
+	CandidateCount                 *int            `json:"candidate_count,omitempty"`
+	CandidateSpacing               *int            `json:"candidate_spacing,omitempty"`
+	CandidateBackgroundColor       *string         `json:"candidate_background_color,omitempty"`
+	CandidateHighlightColor        *string         `json:"candidate_highlight_color,omitempty"`
+	CandidateTextColor             *string         `json:"candidate_text_color,omitempty"`
+	CandidateHighlightTextColor    *string         `json:"candidate_highlight_text_color,omitempty"`
+	CandidateCommentColor          *string         `json:"candidate_comment_color,omitempty"`
+	CandidateCommentHighlightColor *string         `json:"candidate_comment_highlight_color,omitempty"`
+	InputStateShared               *bool           `json:"input_state_shared,omitempty"`
+	SharedOptions                  map[string]bool `json:"shared_options,omitempty"`
+	SharedAsciiMode                *bool           `json:"shared_ascii_mode,omitempty"`
+	SharedFullShape                *bool           `json:"shared_full_shape,omitempty"`
+	SharedTraditionalization       *bool           `json:"shared_traditionalization,omitempty"`
+	AutoPairQuotes                 *bool           `json:"auto_pair_quotes,omitempty"`
+	SemicolonSelectSecond          *bool           `json:"semicolon_select_second,omitempty"`
 }
 
 var appearanceState struct {
@@ -69,27 +70,28 @@ func cloneBoolPtr(value *bool) *bool {
 
 func cloneAppearanceConfig(cfg appearanceConfig) appearanceConfig {
 	return appearanceConfig{
-		CandidateTheme:              cloneStringPtr(cfg.CandidateTheme),
-		FontFace:                    cloneStringPtr(cfg.FontFace),
-		FontPoint:                   cloneIntPtr(cfg.FontPoint),
-		CandidateCommentFontFace:    cloneStringPtr(cfg.CandidateCommentFontFace),
-		CandidateCommentFontPoint:   cloneIntPtr(cfg.CandidateCommentFontPoint),
-		InlinePreedit:               cloneBoolPtr(cfg.InlinePreedit),
-		CandidatePerRow:             cloneIntPtr(cfg.CandidatePerRow),
-		CandidateCount:              cloneIntPtr(cfg.CandidateCount),
-		CandidateBackgroundColor:    cloneStringPtr(cfg.CandidateBackgroundColor),
-		CandidateHighlightColor:     cloneStringPtr(cfg.CandidateHighlightColor),
-		CandidateTextColor:          cloneStringPtr(cfg.CandidateTextColor),
-		CandidateHighlightTextColor: cloneStringPtr(cfg.CandidateHighlightTextColor),
-		CandidateCommentColor:       cloneStringPtr(cfg.CandidateCommentColor),
+		CandidateTheme:                 cloneStringPtr(cfg.CandidateTheme),
+		FontFace:                       cloneStringPtr(cfg.FontFace),
+		FontPoint:                      cloneIntPtr(cfg.FontPoint),
+		CandidateCommentFontFace:       cloneStringPtr(cfg.CandidateCommentFontFace),
+		CandidateCommentFontPoint:      cloneIntPtr(cfg.CandidateCommentFontPoint),
+		InlinePreedit:                  cloneBoolPtr(cfg.InlinePreedit),
+		CandidatePerRow:                cloneIntPtr(cfg.CandidatePerRow),
+		CandidateCount:                 cloneIntPtr(cfg.CandidateCount),
+		CandidateSpacing:               cloneIntPtr(cfg.CandidateSpacing),
+		CandidateBackgroundColor:       cloneStringPtr(cfg.CandidateBackgroundColor),
+		CandidateHighlightColor:        cloneStringPtr(cfg.CandidateHighlightColor),
+		CandidateTextColor:             cloneStringPtr(cfg.CandidateTextColor),
+		CandidateHighlightTextColor:    cloneStringPtr(cfg.CandidateHighlightTextColor),
+		CandidateCommentColor:          cloneStringPtr(cfg.CandidateCommentColor),
 		CandidateCommentHighlightColor: cloneStringPtr(cfg.CandidateCommentHighlightColor),
-		InputStateShared:            cloneBoolPtr(cfg.InputStateShared),
-		SharedOptions:               cloneBoolMap(cfg.SharedOptions),
-		SharedAsciiMode:             cloneBoolPtr(cfg.SharedAsciiMode),
-		SharedFullShape:             cloneBoolPtr(cfg.SharedFullShape),
-		SharedTraditionalization:    cloneBoolPtr(cfg.SharedTraditionalization),
-		AutoPairQuotes:              cloneBoolPtr(cfg.AutoPairQuotes),
-		SemicolonSelectSecond:       cloneBoolPtr(cfg.SemicolonSelectSecond),
+		InputStateShared:               cloneBoolPtr(cfg.InputStateShared),
+		SharedOptions:                  cloneBoolMap(cfg.SharedOptions),
+		SharedAsciiMode:                cloneBoolPtr(cfg.SharedAsciiMode),
+		SharedFullShape:                cloneBoolPtr(cfg.SharedFullShape),
+		SharedTraditionalization:       cloneBoolPtr(cfg.SharedTraditionalization),
+		AutoPairQuotes:                 cloneBoolPtr(cfg.AutoPairQuotes),
+		SemicolonSelectSecond:          cloneBoolPtr(cfg.SemicolonSelectSecond),
 	}
 }
 
@@ -321,6 +323,9 @@ func (ime *IME) applyAppearanceConfig(cfg appearanceConfig) {
 	if cfg.CandidateCount != nil && *cfg.CandidateCount > 0 {
 		ime.style.CandidateCount = *cfg.CandidateCount
 	}
+	if cfg.CandidateSpacing != nil && *cfg.CandidateSpacing >= 0 {
+		ime.style.CandidateSpacing = *cfg.CandidateSpacing
+	}
 	allowCustomColors := !isBuiltinTheme(themeName) || themeName == "custom"
 	if allowCustomColors && cfg.CandidateBackgroundColor != nil && normalizeColor(*cfg.CandidateBackgroundColor) != "" {
 		ime.style.CandidateTheme = "custom"
@@ -442,6 +447,7 @@ func (ime *IME) saveAppearancePrefsWithReason(reason string) {
 	inlinePreedit := ime.inlinePreeditEnabled()
 	candidatePerRow := ime.style.CandidatePerRow
 	candidateCount := ime.style.CandidateCount
+	candidateSpacing := ime.style.CandidateSpacing
 	cfg := appearanceConfig{
 		CandidateTheme:            &theme,
 		FontFace:                  &fontFace,
@@ -451,6 +457,7 @@ func (ime *IME) saveAppearancePrefsWithReason(reason string) {
 		InlinePreedit:             &inlinePreedit,
 		CandidatePerRow:           &candidatePerRow,
 		CandidateCount:            &candidateCount,
+		CandidateSpacing:          &candidateSpacing,
 	}
 	inputStateShared := ime.inputStateShared
 	cfg.InputStateShared = &inputStateShared
@@ -531,22 +538,23 @@ func (ime *IME) inlinePreeditEnabled() bool {
 
 func (ime *IME) customizeUIMap() map[string]interface{} {
 	return map[string]interface{}{
-		"candFontName":           ime.style.FontFace,
-		"candFontSize":           ime.style.FontPoint,
-		"candCommentFontName":    ime.style.CandidateCommentFontFace,
-		"candCommentFontSize":    ime.style.CandidateCommentFontPoint,
-		"candPerRow":             ime.effectiveCandidatePerRow(),
-		"candUseCursor":          ime.style.CandidateUseCursor,
-		"candBackgroundColor":    normalizeColor(ime.style.CandidateBackgroundColor),
-		"candHighlightColor":     normalizeColor(ime.style.CandidateHighlightColor),
-		"candTextColor":          normalizeColor(ime.style.CandidateTextColor),
-		"candHighlightTextColor": normalizeColor(ime.style.CandidateHighlightTextColor),
-		"candCommentColor":       normalizeColor(ime.style.CandidateCommentColor),
+		"candFontName":              ime.style.FontFace,
+		"candFontSize":              ime.style.FontPoint,
+		"candCommentFontName":       ime.style.CandidateCommentFontFace,
+		"candCommentFontSize":       ime.style.CandidateCommentFontPoint,
+		"candPerRow":                ime.effectiveCandidatePerRow(),
+		"candSpacing":               ime.style.CandidateSpacing,
+		"candUseCursor":             ime.style.CandidateUseCursor,
+		"candBackgroundColor":       normalizeColor(ime.style.CandidateBackgroundColor),
+		"candHighlightColor":        normalizeColor(ime.style.CandidateHighlightColor),
+		"candTextColor":             normalizeColor(ime.style.CandidateTextColor),
+		"candHighlightTextColor":    normalizeColor(ime.style.CandidateHighlightTextColor),
+		"candCommentColor":          normalizeColor(ime.style.CandidateCommentColor),
 		"candCommentHighlightColor": normalizeColor(ime.style.CandidateCommentHighlightColor),
-		"inlinePreedit":          ime.inlinePreeditEnabled(),
-		"autoPairQuotes":         ime.autoPairQuotes,
-		"autoPairRules":          ime.currentAutoPairRules(),
-		"semicolonSelectSecond":  ime.semicolonSelectSecond,
+		"inlinePreedit":             ime.inlinePreeditEnabled(),
+		"autoPairQuotes":            ime.autoPairQuotes,
+		"autoPairRules":             ime.currentAutoPairRules(),
+		"semicolonSelectSecond":     ime.semicolonSelectSecond,
 	}
 }
 
@@ -621,6 +629,18 @@ func (ime *IME) applyAppearanceCommand(commandID int) bool {
 		ime.style.CandidatePerRow = 7
 	case ID_APPEARANCE_PER_ROW_9:
 		ime.style.CandidatePerRow = 9
+	case ID_APPEARANCE_SPACING_0:
+		ime.style.CandidateSpacing = 0
+	case ID_APPEARANCE_SPACING_10:
+		ime.style.CandidateSpacing = 10
+	case ID_APPEARANCE_SPACING_20:
+		ime.style.CandidateSpacing = 20
+	case ID_APPEARANCE_SPACING_30:
+		ime.style.CandidateSpacing = 30
+	case ID_APPEARANCE_SPACING_40:
+		ime.style.CandidateSpacing = 40
+	case ID_APPEARANCE_SPACING_50:
+		ime.style.CandidateSpacing = 50
 	case ID_APPEARANCE_CAND_COUNT_3:
 		ime.style.CandidateCount = 3
 	case ID_APPEARANCE_CAND_COUNT_5:

@@ -72,10 +72,11 @@ func TestBuildProtoResponseIncludesClearedCompositionState(t *testing.T) {
 func TestBuildProtoResponseIncludesCustomizeUIBooleans(t *testing.T) {
 	resp := NewResponse(1, true)
 	resp.CustomizeUI = map[string]interface{}{
-		"autoPairQuotes":             true,
-		"semicolonSelectSecond":      true,
-		"candCommentFontName":        "Consolas",
-		"candCommentColor":           "#112233",
+		"autoPairQuotes":            true,
+		"semicolonSelectSecond":     true,
+		"candCommentFontName":       "Consolas",
+		"candSpacing":               30,
+		"candCommentColor":          "#112233",
 		"candCommentHighlightColor": "#445566",
 		"autoPairRules": []AutoPairRule{
 			{Open: "“", Close: "”"},
@@ -99,6 +100,9 @@ func TestBuildProtoResponseIncludesCustomizeUIBooleans(t *testing.T) {
 	}
 	if got := msg.GetCustomizeUi().GetCandCommentFontName(); got != "Consolas" {
 		t.Fatalf("expected candCommentFontName=Consolas, got %q", got)
+	}
+	if got := msg.GetCustomizeUi().GetCandSpacing(); got != 30 {
+		t.Fatalf("expected candSpacing=30, got %d", got)
 	}
 	if got := msg.GetCustomizeUi().GetCandCommentColor(); got != "#112233" {
 		t.Fatalf("expected candCommentColor=#112233, got %q", got)

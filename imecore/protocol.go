@@ -417,6 +417,9 @@ func customizeUiToProto(data map[string]interface{}) *moqipb.CustomizeUi {
 	if value, ok := numericToUint32(data["candPerRow"]); ok {
 		ui.CandPerRow = uint32Ptr(value)
 	}
+	if value, ok := numericToUint32(data["candSpacing"]); ok {
+		ui.CandSpacing = uint32Ptr(value)
+	}
 	if value, ok := data["candUseCursor"].(bool); ok {
 		ui.CandUseCursor = boolPtr(value)
 	}

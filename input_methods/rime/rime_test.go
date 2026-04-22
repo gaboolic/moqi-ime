@@ -467,6 +467,9 @@ func TestNewInitialState(t *testing.T) {
 		t.Fatalf("expected default theme colors, got bg=%q hl=%q",
 			ime.style.CandidateBackgroundColor, ime.style.CandidateHighlightColor)
 	}
+	if ime.style.CandidateSpacing != 20 {
+		t.Fatalf("expected default candidate spacing 20, got %d", ime.style.CandidateSpacing)
+	}
 	if ime.keyComposing {
 		t.Fatal("expected keyComposing to be false initially")
 	}
@@ -1797,6 +1800,31 @@ func TestApplyAppearanceCommandChangesCandidateLayout(t *testing.T) {
 	}
 }
 
+func TestApplyAppearanceCommandChangesCandidateSpacing(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_SPACING_0) {
+		t.Fatal("expected spacing command handled")
+	}
+	if ime.style.CandidateSpacing != 0 {
+		t.Fatalf("expected candidate spacing 0, got %d", ime.style.CandidateSpacing)
+	}
+
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_SPACING_30) {
+		t.Fatal("expected spacing command handled")
+	}
+	if ime.style.CandidateSpacing != 30 {
+		t.Fatalf("expected candidate spacing 30, got %d", ime.style.CandidateSpacing)
+	}
+
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_SPACING_50) {
+		t.Fatal("expected spacing command handled")
+	}
+	if ime.style.CandidateSpacing != 50 {
+		t.Fatalf("expected candidate spacing 50, got %d", ime.style.CandidateSpacing)
+	}
+}
+
 func TestEffectiveCandidatePerRowIsCappedByCandidateCount(t *testing.T) {
 	ime := newIsolatedTestIME(t)
 	ime.style.CandidatePerRow = 9
@@ -1813,6 +1841,9 @@ func TestEffectiveCandidatePerRowIsCappedByCandidateCount(t *testing.T) {
 	}
 	if candPerRow != 3 {
 		t.Fatalf("expected customizeUI candPerRow capped to 3, got %d", candPerRow)
+	}
+	if got, ok := customizeUI["candSpacing"].(int); !ok || got != ime.style.CandidateSpacing {
+		t.Fatalf("expected customizeUI candSpacing %d, got %#v", ime.style.CandidateSpacing, customizeUI["candSpacing"])
 	}
 	if got, ok := customizeUI["candCommentColor"].(string); !ok || got != ime.style.CandidateCommentColor {
 		t.Fatalf("expected customizeUI candCommentColor %q, got %#v", ime.style.CandidateCommentColor, customizeUI["candCommentColor"])
@@ -2006,6 +2037,7 @@ func TestBuildMenuIncludesCandidateLayoutSubmenus(t *testing.T) {
 
 	var layoutMenu map[string]interface{}
 	var perRowMenu map[string]interface{}
+	var spacingMenu map[string]interface{}
 	var commentFontMenu map[string]interface{}
 	for _, item := range submenu {
 		text, _ := item["text"].(string)
@@ -2015,11 +2047,14 @@ func TestBuildMenuIncludesCandidateLayoutSubmenus(t *testing.T) {
 		if text == "每行候选数" {
 			perRowMenu = item
 		}
+		if text == "候选间距" {
+			spacingMenu = item
+		}
 		if text == "注释文字大小" {
 			commentFontMenu = item
 		}
 	}
-	if layoutMenu == nil || perRowMenu == nil || commentFontMenu == nil {
+	if layoutMenu == nil || perRowMenu == nil || spacingMenu == nil || commentFontMenu == nil {
 		t.Fatalf("expected layout menus, got %#v", submenu)
 	}
 
@@ -2040,6 +2075,14 @@ func TestBuildMenuIncludesCandidateLayoutSubmenus(t *testing.T) {
 	}
 	if enabled, _ := perRowMenu["enabled"].(bool); !enabled {
 		t.Fatalf("expected per-row menu enabled in horizontal mode, got %#v", perRowMenu)
+	}
+
+	spacingItems, ok := spacingMenu["submenu"].([]map[string]interface{})
+	if !ok || len(spacingItems) != 6 {
+		t.Fatalf("expected 6 spacing items, got %#v", spacingMenu["submenu"])
+	}
+	if checked, _ := spacingItems[2]["checked"].(bool); !checked {
+		t.Fatalf("expected spacing 20 checked, got %#v", spacingItems[2])
 	}
 
 	commentFontItems, ok := commentFontMenu["submenu"].([]map[string]interface{})
@@ -3332,6 +3375,9 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	if !ime.applyAppearanceCommand(ID_APPEARANCE_PER_ROW_7) {
 		t.Fatal("expected per-row command handled")
 	}
+	if !ime.applyAppearanceCommand(ID_APPEARANCE_SPACING_30) {
+		t.Fatal("expected spacing command handled")
+	}
 	if !ime.applyAppearanceCommand(ID_APPEARANCE_CAND_COUNT_5) {
 		t.Fatal("expected candidate count command handled")
 	}
@@ -3379,6 +3425,9 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	if got := persisted["candidate_count"]; got != float64(5) {
 		t.Fatalf("expected persisted candidate_count 5, got %#v", got)
 	}
+	if got := persisted["candidate_spacing"]; got != float64(30) {
+		t.Fatalf("expected persisted candidate_spacing 30, got %#v", got)
+	}
 	if got := persisted["candidate_background_color"]; got != "#f3f8ff" {
 		t.Fatalf("expected persisted background color, got %#v", got)
 	}
@@ -3425,6 +3474,9 @@ func TestAppearanceSettingsPersistToDisk(t *testing.T) {
 	}
 	if reloaded.style.CandidateCount != 5 {
 		t.Fatalf("expected reloaded candidate count 5, got %d", reloaded.style.CandidateCount)
+	}
+	if reloaded.style.CandidateSpacing != 30 {
+		t.Fatalf("expected reloaded candidate spacing 30, got %d", reloaded.style.CandidateSpacing)
 	}
 	if reloaded.style.CandidateBackgroundColor != "#f3f8ff" {
 		t.Fatalf("expected reloaded background color, got %q", reloaded.style.CandidateBackgroundColor)

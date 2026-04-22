@@ -671,6 +671,7 @@ type CustomizeUi struct {
 	CandCommentColor          *string                `protobuf:"bytes,14,opt,name=cand_comment_color,json=candCommentColor,proto3,oneof" json:"cand_comment_color,omitempty"`
 	CandCommentHighlightColor *string                `protobuf:"bytes,15,opt,name=cand_comment_highlight_color,json=candCommentHighlightColor,proto3,oneof" json:"cand_comment_highlight_color,omitempty"`
 	AutoPairRules             []*AutoPairRule        `protobuf:"bytes,16,rep,name=auto_pair_rules,json=autoPairRules,proto3" json:"auto_pair_rules,omitempty"`
+	CandSpacing               *uint32                `protobuf:"varint,17,opt,name=cand_spacing,json=candSpacing,proto3,oneof" json:"cand_spacing,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -815,6 +816,13 @@ func (x *CustomizeUi) GetAutoPairRules() []*AutoPairRule {
 		return x.AutoPairRules
 	}
 	return nil
+}
+
+func (x *CustomizeUi) GetCandSpacing() uint32 {
+	if x != nil && x.CandSpacing != nil {
+		return *x.CandSpacing
+	}
+	return 0
 }
 
 type MessageWindow struct {
@@ -1444,7 +1452,7 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\acomment\x18\x02 \x01(\tR\acomment\"8\n" +
 	"\fAutoPairRule\x12\x12\n" +
 	"\x04open\x18\x01 \x01(\tR\x04open\x12\x14\n" +
-	"\x05close\x18\x02 \x01(\tR\x05close\"\xc0\t\n" +
+	"\x05close\x18\x02 \x01(\tR\x05close\"\xf9\t\n" +
 	"\vCustomizeUi\x12)\n" +
 	"\x0ecand_font_name\x18\x01 \x01(\tH\x00R\fcandFontName\x88\x01\x01\x12)\n" +
 	"\x0ecand_font_size\x18\x02 \x01(\rH\x01R\fcandFontSize\x88\x01\x01\x12%\n" +
@@ -1464,7 +1472,8 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x16cand_comment_font_name\x18\r \x01(\tH\fR\x13candCommentFontName\x88\x01\x01\x121\n" +
 	"\x12cand_comment_color\x18\x0e \x01(\tH\rR\x10candCommentColor\x88\x01\x01\x12D\n" +
 	"\x1ccand_comment_highlight_color\x18\x0f \x01(\tH\x0eR\x19candCommentHighlightColor\x88\x01\x01\x12C\n" +
-	"\x0fauto_pair_rules\x18\x10 \x03(\v2\x1b.moqi.protocol.AutoPairRuleR\rautoPairRulesB\x11\n" +
+	"\x0fauto_pair_rules\x18\x10 \x03(\v2\x1b.moqi.protocol.AutoPairRuleR\rautoPairRules\x12&\n" +
+	"\fcand_spacing\x18\x11 \x01(\rH\x0fR\vcandSpacing\x88\x01\x01B\x11\n" +
 	"\x0f_cand_font_nameB\x11\n" +
 	"\x0f_cand_font_sizeB\x0f\n" +
 	"\r_cand_per_rowB\x12\n" +
@@ -1479,7 +1488,8 @@ const file_proto_moqi_proto_rawDesc = "" +
 	"\x18_semicolon_select_secondB\x19\n" +
 	"\x17_cand_comment_font_nameB\x15\n" +
 	"\x13_cand_comment_colorB\x1f\n" +
-	"\x1d_cand_comment_highlight_color\"E\n" +
+	"\x1d_cand_comment_highlight_colorB\x0f\n" +
+	"\r_cand_spacing\"E\n" +
 	"\rMessageWindow\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1a\n" +
 	"\bduration\x18\x02 \x01(\x05R\bduration\"{\n" +
