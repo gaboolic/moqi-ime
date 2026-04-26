@@ -106,10 +106,11 @@ const (
 	helpDocsURL   = "https://moqiyinxing.chunqiujinjing.com/index"
 	discussionURL = "https://github.com/gaboolic/moqi-im-windows/discussions"
 
-	aiSelectKeys     = "123456789"
-	aiHotkeyKeyCode  = 0x47 // G
-	aiCandidateLimit = 3
-	secondSelectChar = ';'
+	defaultSelectKeys = "1234567890"
+	aiSelectKeys      = "123456789"
+	aiHotkeyKeyCode   = 0x47 // G
+	aiCandidateLimit  = 3
+	secondSelectChar  = ';'
 )
 
 type Style struct {
@@ -549,6 +550,30 @@ func summarizeCandidateTexts(items []candidateItem, limit int) []string {
 		result = append(result, item.Text)
 	}
 	return result
+}
+
+func normalizedSelectKeys(selectKeys string, candidateCount int) string {
+	if candidateCount <= 0 {
+		return ""
+	}
+	if selectKeys == "" {
+		selectKeys = defaultSelectKeys
+	}
+	if len(selectKeys) > candidateCount {
+		return selectKeys[:candidateCount]
+	}
+	return selectKeys
+}
+
+func (ime *IME) updateResponseSelectKeys(resp *imecore.Response, selectKeys string, candidateCount int) {
+	if resp == nil {
+		return
+	}
+	selKeys := normalizedSelectKeys(selectKeys, candidateCount)
+	if selKeys != "" && selKeys != ime.selectKeys {
+		resp.SetSelKeys = selKeys
+		ime.selectKeys = selKeys
+	}
 }
 
 func (ime *IME) selectionKeyIndex(req *imecore.Request) (int, bool) {
@@ -1961,10 +1986,6 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 		ime.keyComposing = false
 		return true
 	}
-	if state.SelectKeys != "" && state.SelectKeys != ime.selectKeys {
-		resp.SetSelKeys = state.SelectKeys
-		ime.selectKeys = state.SelectKeys
-	}
 	resp.CompositionString = state.Composition
 	resp.CursorPos = state.CursorPos
 	resp.CompositionCursor = state.CursorPos
@@ -2008,13 +2029,11 @@ func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit
 		}
 		resp.HasCandidateCursor = true
 		resp.ShowCandidates = true
+		selectKeys := state.SelectKeys
 		if len(customPhraseCandidates) > 0 && len(resp.CandidateList) <= len(aiSelectKeys) {
-			selKeys := aiSelectKeys[:len(resp.CandidateList)]
-			if selKeys != ime.selectKeys {
-				resp.SetSelKeys = selKeys
-				ime.selectKeys = selKeys
-			}
+			selectKeys = aiSelectKeys
 		}
+		ime.updateResponseSelectKeys(resp, selectKeys, len(resp.CandidateList))
 	} else {
 		resp.CandidateList = []string{}
 		resp.CandidateEntries = []imecore.CandidateEntry{}

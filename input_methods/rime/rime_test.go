@@ -88,6 +88,7 @@ type testBackend struct {
 	pageNo               int
 	candidateCursor      int
 	candidates           []candidateItem
+	selectKeys           string
 	commitString         string
 	asciiMode            bool
 	fullShape            bool
@@ -115,6 +116,7 @@ func newTestBackend() *testBackend {
 	return &testBackend{
 		redeployOK: true,
 		syncOK:     true,
+		selectKeys: "1234567890",
 		schemas: []RimeSchema{
 			{ID: "rime_frost", Name: "白霜拼音"},
 			{ID: "rime_frost_double_pinyin", Name: "自然码双拼"},
@@ -303,7 +305,7 @@ func (b *testBackend) State() rimeState {
 		CursorPos:       len(b.composition),
 		Candidates:      append([]candidateItem(nil), b.candidates...),
 		CandidateCursor: b.candidateCursor,
-		SelectKeys:      "1234567890",
+		SelectKeys:      b.selectKeys,
 		AsciiMode:       b.asciiMode,
 		FullShape:       b.fullShape,
 	}
@@ -3236,6 +3238,34 @@ func TestFillResponseFromBackendStateAppliesCandidateCount(t *testing.T) {
 	}
 	if resp.SetSelKeys != "12345" {
 		t.Fatalf("expected select keys truncated to 12345, got %q", resp.SetSelKeys)
+	}
+}
+
+func TestFillResponseFromBackendStateRestoresDefaultSelectKeysWhenBackendOmitsThem(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	ime.selectKeys = "123"
+	backend := ime.backend.(*testBackend)
+	backend.selectKeys = ""
+	backend.composition = "w"
+	backend.candidates = []candidateItem{
+		{Text: "未"},
+		{Text: "完"},
+		{Text: "万"},
+		{Text: "我"},
+		{Text: "为"},
+		{Text: "玩"},
+		{Text: "问"},
+		{Text: "外"},
+	}
+
+	resp := imecore.NewResponse(20, true)
+	ime.fillResponseFromBackendState(resp, false)
+
+	if resp.SetSelKeys != "12345678" {
+		t.Fatalf("expected default select keys restored to candidate count, got %q", resp.SetSelKeys)
+	}
+	if ime.selectKeys != "12345678" {
+		t.Fatalf("expected cached select keys restored, got %q", ime.selectKeys)
 	}
 }
 
