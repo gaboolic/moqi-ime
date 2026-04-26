@@ -32,6 +32,8 @@ const (
 	ID_USER_DIR           = 14
 	ID_LOG_DIR            = 16
 	ID_UPDATE_CONFIG      = 17
+	ID_HELP_DOCS          = 21
+	ID_DISCUSSIONS        = 22
 	ID_SCHEMA_BASE        = 1000
 	ID_SWITCH_BASE        = 2000
 	ID_SCHEME_SET_BASE    = 3000
@@ -100,6 +102,9 @@ const (
 	ID_SHARED_INPUT_STATE                      = 210
 	ID_INPUT_AUTO_PAIR_QUOTES                  = 220
 	ID_INPUT_SEMICOLON_SELECT_SECOND           = 221
+
+	helpDocsURL   = "https://moqiyinxing.chunqiujinjing.com/index"
+	discussionURL = "https://github.com/gaboolic/moqi-im-windows/discussions"
 
 	aiSelectKeys     = "123456789"
 	aiHotkeyKeyCode  = 0x47 // G
@@ -255,6 +260,7 @@ func defaultStyle() Style {
 var deployConfigFileFunc = DeployConfigFile
 var startMaintenanceFunc = StartMaintenance
 var joinMaintenanceThreadFunc = JoinMaintenanceThread
+var openURLFunc = openWithDefaultApp
 
 func New(client *imecore.Client) imecore.TextService {
 	cfg, err := loadAIConfig()
@@ -800,6 +806,10 @@ func (ime *IME) onCommand(req *imecore.Request, resp *imecore.Response) *imecore
 			}
 		}
 		ime.openPath(logDir)
+	case ID_HELP_DOCS:
+		ime.openURL(helpDocsURL)
+	case ID_DISCUSSIONS:
+		ime.openURL(discussionURL)
 	default:
 		previousCandidateCount := ime.candidateCount()
 		if commandID == ID_SHARED_INPUT_STATE {
@@ -2729,6 +2739,9 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 			{"id": ID_SYNC_DIR, "text": "同步文件夹"},
 			{"id": ID_LOG_DIR, "text": "日志文件夹"},
 		}},
+		map[string]interface{}{"text": ""},
+		map[string]interface{}{"id": ID_HELP_DOCS, "text": "帮助文档(&H)"},
+		map[string]interface{}{"id": ID_DISCUSSIONS, "text": "参加讨论(&J)"},
 	)
 	return items
 }
@@ -2787,7 +2800,7 @@ func (ime *IME) openURL(rawURL string) {
 	if rawURL == "" {
 		return
 	}
-	if err := exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", rawURL).Start(); err != nil {
+	if err := openURLFunc(rawURL); err != nil {
 		log.Printf("打开链接失败 %s: %v", rawURL, err)
 	}
 }

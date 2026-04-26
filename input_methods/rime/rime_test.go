@@ -1321,6 +1321,61 @@ func TestOnMenuReturnsSettingsMenu(t *testing.T) {
 	}
 }
 
+func TestBuildMenuIncludesHelpLinks(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+
+	items := ime.buildMenu()
+	want := map[string]int{
+		"帮助文档(&H)": ID_HELP_DOCS,
+		"参加讨论(&J)": ID_DISCUSSIONS,
+	}
+	for text, id := range want {
+		found := false
+		for _, item := range items {
+			if item["text"] == text && item["id"] == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected menu item %q with id %d, got %#v", text, id, items)
+		}
+	}
+}
+
+func TestOnCommandOpensHelpLinks(t *testing.T) {
+	ime := newIsolatedTestIME(t)
+	oldOpenURLFunc := openURLFunc
+	var opened []string
+	openURLFunc = func(target string) error {
+		opened = append(opened, target)
+		return nil
+	}
+	defer func() {
+		openURLFunc = oldOpenURLFunc
+	}()
+
+	for _, commandID := range []int{ID_HELP_DOCS, ID_DISCUSSIONS} {
+		resp := ime.onCommand(&imecore.Request{
+			SeqNum: 17,
+			ID:     imecore.FlexibleID{Int: commandID, IsInt: true},
+		}, imecore.NewResponse(17, true))
+		if resp.ReturnValue != 1 {
+			t.Fatalf("expected command %d to succeed, got %d", commandID, resp.ReturnValue)
+		}
+	}
+
+	want := []string{helpDocsURL, discussionURL}
+	if len(opened) != len(want) {
+		t.Fatalf("expected opened urls %#v, got %#v", want, opened)
+	}
+	for i := range want {
+		if opened[i] != want[i] {
+			t.Fatalf("expected opened urls %#v, got %#v", want, opened)
+		}
+	}
+}
+
 func TestBuildMenuIncludesSchemaSubmenu(t *testing.T) {
 	ime := newIsolatedTestIME(t)
 
