@@ -47,7 +47,6 @@ func TestGenerateReviewCandidatesSendsChatCompletionRequest(t *testing.T) {
 		Model       string        `json:"model"`
 		Messages    []chatMessage `json:"messages"`
 		Temperature float64       `json:"temperature"`
-		Thinking    thinkingMode  `json:"thinking"`
 	}
 
 	var captured capturedRequest
@@ -64,8 +63,19 @@ func TestGenerateReviewCandidatesSendsChatCompletionRequest(t *testing.T) {
 		if got := r.Header.Get("Content-Type"); got != "application/json" {
 			t.Fatalf("unexpected content type: %q", got)
 		}
-		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+		var body map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode request body: %v", err)
+		}
+		if _, ok := body["thinking"]; ok {
+			t.Fatalf("expected request body not to include thinking, got %#v", body["thinking"])
+		}
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal captured request body: %v", err)
+		}
+		if err := json.Unmarshal(encoded, &captured); err != nil {
+			t.Fatalf("decode captured request body: %v", err)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -121,9 +131,6 @@ func TestGenerateReviewCandidatesSendsChatCompletionRequest(t *testing.T) {
 	}
 	if captured.Temperature != 0.8 {
 		t.Fatalf("expected temperature 0.8, got %v", captured.Temperature)
-	}
-	if captured.Thinking.Type != "disabled" {
-		t.Fatalf("expected thinking disabled, got %#v", captured.Thinking)
 	}
 	if len(candidates) != 2 {
 		t.Fatalf("expected 2 candidates, got %#v", candidates)

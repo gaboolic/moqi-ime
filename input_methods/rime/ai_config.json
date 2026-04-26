@@ -1,8 +1,8 @@
 {
   "api": {
-    "base_url": "",
-    "api_key": "",
-    "model": ""
+    "base_url": "https://api.chatanywhere.tech",
+    "api_key": "sk-cfJrCS95bdm6mE8h41SEl9NlvroW0OI5s89Z7rOxS6ktWKkj",
+    "model": "gpt-5-mini"
   },
   "actions": [
     {

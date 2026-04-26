@@ -23,16 +23,11 @@ type chatCompletionsRequest struct {
 	Model       string        `json:"model"`
 	Messages    []chatMessage `json:"messages"`
 	Temperature float64       `json:"temperature"`
-	Thinking    thinkingMode  `json:"thinking"`
 }
 
 type chatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
-}
-
-type thinkingMode struct {
-	Type string `json:"type"`
 }
 
 type chatCompletionsResponse struct {
@@ -95,9 +90,6 @@ func (c *aiClient) GenerateReviewCandidates(input aiGenerateRequest) ([]string, 
 			},
 		},
 		Temperature: 0.8,
-		Thinking: thinkingMode{
-			Type: "disabled",
-		},
 	}
 
 	body, err := json.Marshal(payload)
