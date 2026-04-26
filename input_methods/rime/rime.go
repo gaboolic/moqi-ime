@@ -206,6 +206,9 @@ type IME struct {
 	inputStateShared             bool
 	sharedOptions                map[string]bool
 	sharedInputStateNeedsApply   bool
+	syncedOptions                map[string]bool
+	syncedSchemaID               string
+	syncedSettingsNeedsApply     bool
 	autoPairQuotes               bool
 	semicolonSelectSecond        bool
 	rawInputTracked              string
@@ -301,6 +304,7 @@ func (ime *IME) HandleRequest(req *imecore.Request) *imecore.Response {
 	resp := imecore.NewResponse(req.SeqNum, true)
 	if ime.syncAppearancePrefs() {
 		ime.sharedInputStateNeedsApply = ime.inputStateShared
+		ime.syncedSettingsNeedsApply = true
 		resp.CustomizeUI = ime.customizeUIMap()
 	}
 	if ime.syncAutoPairRules() {
@@ -882,6 +886,7 @@ func (ime *IME) onMenu(req *imecore.Request, resp *imecore.Response) *imecore.Re
 		return resp
 	}
 
+	ime.createSession(resp)
 	resp.ReturnData = ime.buildMenu()
 	resp.ReturnValue = 1
 	return resp
@@ -1727,6 +1732,10 @@ func (ime *IME) createSession(resp *imecore.Response) {
 	if !ime.backend.EnsureSession() {
 		return
 	}
+	if !hadSession || ime.syncedSettingsNeedsApply {
+		ime.applySyncedSettingsToBackend()
+		ime.syncedSettingsNeedsApply = false
+	}
 	if ime.inputStateShared && (!hadSession || ime.sharedInputStateNeedsApply) {
 		ime.applySharedInputStateToBackend()
 		ime.sharedInputStateNeedsApply = false
@@ -2028,9 +2037,16 @@ func (ime *IME) toggleOption(name string) {
 		return
 	}
 	ime.backend.SetOption(name, !ime.backend.GetOption(name))
-	if ime.inputStateShared && ime.isSharedInputStateOption(name) {
-		ime.captureSharedInputStateFromBackend()
-		ime.saveAppearancePrefsWithReason(fmt.Sprintf("toggleOption:shared_option:%s", name))
+	if ime.isSharedInputStateOption(name) {
+		if ime.inputStateShared {
+			ime.captureSharedInputStateFromBackend()
+			ime.saveAppearancePrefsWithReason(fmt.Sprintf("toggleOption:shared_option:%s", name))
+		}
+		return
+	}
+	if ime.isAlwaysSyncedOption(name) {
+		ime.captureSyncedOptionsFromBackend()
+		ime.saveAppearancePrefsWithReason(fmt.Sprintf("toggleOption:synced_option:%s", name))
 	}
 }
 
@@ -2261,6 +2277,8 @@ func (ime *IME) handleSchemaCommand(commandID int) bool {
 	if !ime.backend.SelectSchema(schemaID) {
 		return false
 	}
+	ime.syncedSchemaID = schemaID
+	ime.saveAppearancePrefsWithReason("handleSchemaCommand")
 	if ime.inputStateShared {
 		ime.applySharedInputStateToBackend()
 		ime.syncSharedInputStateFromBackendIfChanged()
@@ -2322,9 +2340,31 @@ func (ime *IME) shareableOptionNames() []string {
 	return unique
 }
 
+func isInputStateOptionName(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "ascii_mode", "traditionalization", "ascii_punct", "full_shape":
+		return true
+	default:
+		return false
+	}
+}
+
 func (ime *IME) isSharedInputStateOption(name string) bool {
 	name = strings.TrimSpace(name)
-	if name == "" {
+	if name == "" || !isInputStateOptionName(name) {
+		return false
+	}
+	for _, candidate := range ime.shareableOptionNames() {
+		if candidate == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (ime *IME) isAlwaysSyncedOption(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" || isInputStateOptionName(name) {
 		return false
 	}
 	for _, candidate := range ime.shareableOptionNames() {
@@ -2343,6 +2383,9 @@ func (ime *IME) captureSharedInputStateFromBackend() {
 		ime.sharedOptions = make(map[string]bool)
 	}
 	for _, name := range ime.shareableOptionNames() {
+		if !isInputStateOptionName(name) {
+			continue
+		}
 		ime.sharedOptions[name] = ime.backend.GetOption(name)
 	}
 }
@@ -2353,7 +2396,7 @@ func (ime *IME) applySharedInputStateToBackend() {
 	}
 	for name, value := range ime.sharedOptions {
 		name = strings.TrimSpace(name)
-		if name == "" {
+		if name == "" || !isInputStateOptionName(name) {
 			continue
 		}
 		ime.backend.SetOption(name, value)
@@ -2369,6 +2412,9 @@ func (ime *IME) syncSharedInputStateFromBackendIfChanged() {
 	}
 	changed := false
 	for _, name := range ime.shareableOptionNames() {
+		if !isInputStateOptionName(name) {
+			continue
+		}
 		value := ime.backend.GetOption(name)
 		if current, ok := ime.sharedOptions[name]; ok && current == value {
 			continue
@@ -2380,6 +2426,38 @@ func (ime *IME) syncSharedInputStateFromBackendIfChanged() {
 		return
 	}
 	ime.saveAppearancePrefsWithReason("captureSharedInputStateFromBackend")
+}
+
+func (ime *IME) captureSyncedOptionsFromBackend() {
+	if ime.backend == nil {
+		return
+	}
+	if ime.syncedOptions == nil {
+		ime.syncedOptions = make(map[string]bool)
+	}
+	for _, name := range ime.shareableOptionNames() {
+		if isInputStateOptionName(name) {
+			continue
+		}
+		ime.syncedOptions[name] = ime.backend.GetOption(name)
+	}
+}
+
+func (ime *IME) applySyncedSettingsToBackend() {
+	if ime.backend == nil {
+		return
+	}
+	schemaID := strings.TrimSpace(ime.syncedSchemaID)
+	if schemaID != "" && ime.backend.CurrentSchemaID() != schemaID {
+		_ = ime.backend.SelectSchema(schemaID)
+	}
+	for name, value := range ime.syncedOptions {
+		name = strings.TrimSpace(name)
+		if name == "" || isInputStateOptionName(name) {
+			continue
+		}
+		ime.backend.SetOption(name, value)
+	}
 }
 
 func (ime *IME) toggleInputStateShared() {

@@ -82,32 +82,32 @@ type testDictEntry struct {
 }
 
 type testBackend struct {
-	session            bool
-	composition        string
-	rawInput           string
-	pageNo             int
-	candidateCursor    int
-	candidates         []candidateItem
-	commitString       string
-	asciiMode          bool
-	fullShape          bool
-	options            map[string]bool
-	saveOptions        []string
-	schemaSwitches     map[string][]RimeSwitch
-	schemas            []RimeSchema
-	currentSchemaID    string
-	selectSchemaCalls  []string
-	pageSizeCalls      []int
-	pageSizeOK         bool
-	redeployCalls      int
-	redeploySharedDir  string
-	redeployUserDir    string
-	redeployOK         bool
-	syncCalls          int
-	syncOK             bool
-	setOptionCalls     int
-	getOptionCalls     int
-	toggleASCIIOnCtrlA bool
+	session              bool
+	composition          string
+	rawInput             string
+	pageNo               int
+	candidateCursor      int
+	candidates           []candidateItem
+	commitString         string
+	asciiMode            bool
+	fullShape            bool
+	options              map[string]bool
+	saveOptions          []string
+	schemaSwitches       map[string][]RimeSwitch
+	schemas              []RimeSchema
+	currentSchemaID      string
+	selectSchemaCalls    []string
+	pageSizeCalls        []int
+	pageSizeOK           bool
+	redeployCalls        int
+	redeploySharedDir    string
+	redeployUserDir      string
+	redeployOK           bool
+	syncCalls            int
+	syncOK               bool
+	setOptionCalls       int
+	getOptionCalls       int
+	toggleASCIIOnCtrlA   bool
 	disableArrowHandling bool
 }
 
@@ -1284,6 +1284,7 @@ func TestOnCommandSyncUserData(t *testing.T) {
 }
 
 func TestOnCommandSelectSchema(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
 	ime := newIsolatedTestIME(t)
 	backend := ime.backend.(*testBackend)
 
@@ -3328,6 +3329,7 @@ func TestHandleRequestSyncsDynamicSharedOptionsAcrossInstances(t *testing.T) {
 	first.backend.SetOption("emoji", true)
 	first.backend.SetOption("ascii_mode", true)
 	first.captureSharedInputStateFromBackend()
+	first.captureSyncedOptionsFromBackend()
 	first.saveAppearancePrefs()
 
 	second := newTestIME()
@@ -3353,6 +3355,81 @@ func TestHandleRequestSyncsDynamicSharedOptionsAcrossInstances(t *testing.T) {
 	}
 	if !second.backend.GetOption("ascii_mode") {
 		t.Fatal("expected ascii_mode synced to enabled")
+	}
+}
+
+func TestAlwaysSyncedSwitcherOptionsIgnoreInputStateSharedToggle(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	resetSharedAppearanceConfigForTest()
+
+	first := newTestIME()
+	firstBackend := first.backend.(*testBackend)
+	firstBackend.saveOptions = []string{"emoji", "ascii_mode"}
+	firstBackend.schemaSwitches[firstBackend.currentSchemaID] = []RimeSwitch{
+		{Name: "emoji", States: []string{"常规", "Emoji"}},
+		{Name: "ascii_mode", States: []string{"中文", "西文"}},
+	}
+	first.inputStateShared = false
+	firstResp := first.onCommand(&imecore.Request{
+		SeqNum: 171,
+		ID:     imecore.FlexibleID{Int: switchCommandID(0), IsInt: true},
+	}, imecore.NewResponse(171, true))
+	if firstResp.ReturnValue != 1 {
+		t.Fatalf("expected dynamic switch command handled, got %d", firstResp.ReturnValue)
+	}
+	first.backend.SetOption("ascii_mode", true)
+	first.captureSharedInputStateFromBackend()
+	first.saveAppearancePrefs()
+
+	second := newTestIME()
+	secondBackend := second.backend.(*testBackend)
+	secondBackend.saveOptions = []string{"emoji", "ascii_mode"}
+	secondBackend.schemaSwitches[secondBackend.currentSchemaID] = []RimeSwitch{
+		{Name: "emoji", States: []string{"常规", "Emoji"}},
+		{Name: "ascii_mode", States: []string{"中文", "西文"}},
+	}
+
+	resp := second.HandleRequest(&imecore.Request{
+		SeqNum: 171,
+		Method: "onMenu",
+		ID:     imecore.FlexibleID{String: "settings"},
+	})
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected onMenu handled, got %d", resp.ReturnValue)
+	}
+	if !second.backend.GetOption("emoji") {
+		t.Fatal("expected non-input-state emoji option synced even with input state sharing disabled")
+	}
+	if second.backend.GetOption("ascii_mode") {
+		t.Fatal("expected ascii_mode not synced while input state sharing is disabled")
+	}
+}
+
+func TestHandleRequestSyncsSelectedSchemaAcrossInstances(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	resetSharedAppearanceConfigForTest()
+
+	first := newTestIME()
+	resp := first.onCommand(&imecore.Request{
+		SeqNum: 172,
+		ID:     imecore.FlexibleID{Int: schemaCommandID(1), IsInt: true},
+	}, imecore.NewResponse(172, true))
+	if resp.ReturnValue != 1 {
+		t.Fatalf("expected schema command handled, got %d", resp.ReturnValue)
+	}
+
+	second := newTestIME()
+	secondResp := second.HandleRequest(&imecore.Request{
+		SeqNum: 173,
+		Method: "onMenu",
+		ID:     imecore.FlexibleID{String: "settings"},
+	})
+	if secondResp.ReturnValue != 1 {
+		t.Fatalf("expected onMenu handled, got %d", secondResp.ReturnValue)
+	}
+	secondBackend := second.backend.(*testBackend)
+	if secondBackend.currentSchemaID != "rime_frost_double_pinyin" {
+		t.Fatalf("expected schema synced to double pinyin, got %q", secondBackend.currentSchemaID)
 	}
 }
 
@@ -3496,10 +3573,6 @@ func TestCreateSessionAppliesSharedInputStateAfterSharedConfigUpdateWithExisting
 	if resp.ReturnValue != 1 {
 		t.Fatalf("expected onMenu handled, got %d", resp.ReturnValue)
 	}
-	if !second.sharedInputStateNeedsApply {
-		t.Fatal("expected shared input state update to mark session for reapply")
-	}
-
 	second.createSession(nil)
 	if second.sharedInputStateNeedsApply {
 		t.Fatal("expected shared input state apply marker cleared after createSession")

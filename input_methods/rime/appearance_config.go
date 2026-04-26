@@ -30,6 +30,8 @@ type appearanceConfig struct {
 	CandidateCommentHighlightColor *string         `json:"candidate_comment_highlight_color,omitempty"`
 	InputStateShared               *bool           `json:"input_state_shared,omitempty"`
 	SharedOptions                  map[string]bool `json:"shared_options,omitempty"`
+	SyncedOptions                  map[string]bool `json:"synced_options,omitempty"`
+	CurrentSchemaID                *string         `json:"current_schema_id,omitempty"`
 	SharedAsciiMode                *bool           `json:"shared_ascii_mode,omitempty"`
 	SharedFullShape                *bool           `json:"shared_full_shape,omitempty"`
 	SharedTraditionalization       *bool           `json:"shared_traditionalization,omitempty"`
@@ -87,6 +89,8 @@ func cloneAppearanceConfig(cfg appearanceConfig) appearanceConfig {
 		CandidateCommentHighlightColor: cloneStringPtr(cfg.CandidateCommentHighlightColor),
 		InputStateShared:               cloneBoolPtr(cfg.InputStateShared),
 		SharedOptions:                  cloneBoolMap(cfg.SharedOptions),
+		SyncedOptions:                  cloneBoolMap(cfg.SyncedOptions),
+		CurrentSchemaID:                cloneStringPtr(cfg.CurrentSchemaID),
 		SharedAsciiMode:                cloneBoolPtr(cfg.SharedAsciiMode),
 		SharedFullShape:                cloneBoolPtr(cfg.SharedFullShape),
 		SharedTraditionalization:       cloneBoolPtr(cfg.SharedTraditionalization),
@@ -361,6 +365,15 @@ func (ime *IME) applyAppearanceConfig(cfg appearanceConfig) {
 	if len(cfg.SharedOptions) > 0 {
 		ime.sharedOptions = cloneBoolMap(cfg.SharedOptions)
 	}
+	if len(cfg.SyncedOptions) > 0 {
+		ime.syncedOptions = cloneBoolMap(cfg.SyncedOptions)
+	}
+	if ime.syncedOptions == nil {
+		ime.syncedOptions = make(map[string]bool)
+	}
+	if cfg.CurrentSchemaID != nil {
+		ime.syncedSchemaID = strings.TrimSpace(*cfg.CurrentSchemaID)
+	}
 	if ime.sharedOptions == nil {
 		ime.sharedOptions = make(map[string]bool)
 	}
@@ -481,6 +494,13 @@ func (ime *IME) saveAppearancePrefsWithReason(reason string) {
 	}
 	if ime.inputStateShared {
 		cfg.SharedOptions = cloneBoolMap(ime.sharedOptions)
+	}
+	if len(ime.syncedOptions) > 0 {
+		cfg.SyncedOptions = cloneBoolMap(ime.syncedOptions)
+	}
+	if strings.TrimSpace(ime.syncedSchemaID) != "" {
+		currentSchemaID := strings.TrimSpace(ime.syncedSchemaID)
+		cfg.CurrentSchemaID = &currentSchemaID
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
