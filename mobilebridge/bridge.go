@@ -265,7 +265,9 @@ func (s *Session) baseRequest(method string) *imecore.Request {
 		CandidateList:     append([]string{}, s.candidates...),
 		ShowCandidates:    s.show,
 		CursorPos:         s.cursorPos,
-		Data:              map[string]interface{}{},
+		Data: map[string]interface{}{
+			"source": "android",
+		},
 	}
 }
 

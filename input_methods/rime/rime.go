@@ -402,7 +402,7 @@ func (ime *IME) filterKeyDown(req *imecore.Request, resp *imecore.Response) *ime
 	if ime.handleSecondSelectionKeyDownFilter(req, resp) {
 		return resp
 	}
-	if ime.lastKeyDownCode == req.KeyCode {
+	if !isAndroidSoftKeyboardRequest(req) && ime.lastKeyDownCode == req.KeyCode {
 		ime.lastKeySkip++
 		if ime.lastKeySkip >= 2 {
 			ime.lastKeyDownCode = 0
@@ -449,6 +449,14 @@ func (ime *IME) filterKeyUp(req *imecore.Request, resp *imecore.Response) *imeco
 	ime.lastKeySkip = 0
 	resp.ReturnValue = boolToInt(ime.lastKeyUpRet)
 	return resp
+}
+
+func isAndroidSoftKeyboardRequest(req *imecore.Request) bool {
+	if req == nil || req.Data == nil {
+		return false
+	}
+	source, _ := req.Data["source"].(string)
+	return strings.EqualFold(strings.TrimSpace(source), "android")
 }
 
 func (ime *IME) currentInputModeState() (asciiMode bool, fullShape bool, ok bool) {

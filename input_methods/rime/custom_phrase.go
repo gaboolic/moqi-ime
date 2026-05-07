@@ -67,7 +67,7 @@ func ensureCustomPhraseFileExists() (string, error) {
 	}
 	content, err := loadDefaultTemplate(customPhraseTemplateFileName)
 	if err != nil {
-		return "", err
+		content = []byte("# 置顶短语\n# 词汇<Tab>编码<Tab>权重\n")
 	}
 	if err := os.WriteFile(path, content, 0o644); err != nil {
 		return "", err
