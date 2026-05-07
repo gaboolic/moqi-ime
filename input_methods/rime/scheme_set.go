@@ -132,6 +132,23 @@ func currentSchemeSetName() string {
 	return name
 }
 
+func CurrentSchemeSetName() string {
+	return currentSchemeSetName()
+}
+
+func AvailableSchemeSetNames() []string {
+	return availableSchemeSets()
+}
+
+func SelectSchemeSetName(name string) bool {
+	name = normalizeSchemeSetName(name)
+	if !saveCurrentSchemeSetName(name) {
+		return false
+	}
+	bumpSchemeSetVersion()
+	return true
+}
+
 func saveCurrentSchemeSetName(name string) bool {
 	root := moqiAppDataDir()
 	if root == "" {

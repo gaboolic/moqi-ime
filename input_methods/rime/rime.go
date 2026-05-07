@@ -120,6 +120,8 @@ const (
 	aiHotkeyKeyCode   = 0x47 // G
 	aiCandidateLimit  = 3
 	secondSelectChar  = ';'
+
+	rimeSlowLogThreshold = 30 * time.Millisecond
 )
 
 type Style struct {
@@ -320,6 +322,11 @@ func (ime *IME) HandleRequest(req *imecore.Request) *imecore.Response {
 	ime.mu.Lock()
 	defer ime.mu.Unlock()
 
+	requestStart := time.Now()
+	defer func() {
+		logRimeSlow("HandleRequest", requestStart, "method=%s key=%d char=%d", req.Method, req.KeyCode, req.CharCode)
+	}()
+
 	resp := imecore.NewResponse(req.SeqNum, true)
 	ime.syncSchemeSetVersion(resp)
 	if ime.syncAppearancePrefs() {
@@ -405,7 +412,9 @@ func (ime *IME) filterKeyDown(req *imecore.Request, resp *imecore.Response) *ime
 		ime.lastKeyDownCode = req.KeyCode
 		ime.lastKeySkip = 0
 		beforeASCII, beforeFullShape, hasInputState := ime.currentInputModeState()
+		start := time.Now()
 		ime.lastKeyDownRet = ime.processKey(req, false)
+		logRimeSlow("filterKeyDown.processKey", start, "key=%d char=%d ret=%v", req.KeyCode, req.CharCode, ime.lastKeyDownRet)
 		ime.updateLangStatusIfInputStateChanged(req, resp, beforeASCII, beforeFullShape, hasInputState)
 	}
 	ime.lastKeyUpCode = 0
@@ -431,7 +440,9 @@ func (ime *IME) filterKeyUp(req *imecore.Request, resp *imecore.Response) *imeco
 	} else {
 		ime.lastKeyUpCode = req.KeyCode
 		beforeASCII, beforeFullShape, hasInputState := ime.currentInputModeState()
+		start := time.Now()
 		ime.lastKeyUpRet = ime.processKey(req, true)
+		logRimeSlow("filterKeyUp.processKey", start, "key=%d char=%d ret=%v", req.KeyCode, req.CharCode, ime.lastKeyUpRet)
 		ime.updateLangStatusIfInputStateChanged(req, resp, beforeASCII, beforeFullShape, hasInputState)
 	}
 	ime.lastKeyDownCode = 0
@@ -1014,6 +1025,12 @@ func (ime *IME) BackendAvailable() bool {
 }
 
 func (ime *IME) processKey(req *imecore.Request, isUp bool) bool {
+	start := time.Now()
+	defer func() {
+		if req != nil {
+			logRimeSlow("processKey", start, "key=%d char=%d isUp=%v", req.KeyCode, req.CharCode, isUp)
+		}
+	}()
 	ime.createSession(nil)
 	if ime.backend == nil {
 		ime.logShortcutTrace(req, isUp, 0, 0, false, false)
@@ -1030,7 +1047,9 @@ func (ime *IME) processKey(req *imecore.Request, isUp bool) bool {
 	}
 	translatedKeyCode := translateKeyCode(req)
 	modifiers := translateModifiers(req, isUp)
+	backendStart := time.Now()
 	backendRet := ime.backend.ProcessKey(req, translatedKeyCode, modifiers)
+	logRimeSlow("backend.ProcessKey", backendStart, "key=%d translated=%d modifiers=%d ret=%v", req.KeyCode, translatedKeyCode, modifiers, backendRet)
 	if shouldFallbackArrowNavigation && modifiers == 0 &&
 		ime.applyArrowNavigationFallback(req.KeyCode, beforeState) {
 		backendRet = true
@@ -1424,7 +1443,9 @@ func (ime *IME) currentVisibleBackendState() (rimeState, bool) {
 	if ime.backend == nil || !ime.backendReady() {
 		return rimeState{}, false
 	}
+	stateStart := time.Now()
 	state := ime.backend.State()
+	logRimeSlow("backend.State", stateStart, "composition=%d candidates=%d commit=%d", len(state.Composition), len(state.Candidates), len(state.CommitString))
 	visibleCandidateCount := ime.candidateCount()
 	if visibleCandidateCount > 0 && len(state.Candidates) > visibleCandidateCount {
 		state.Candidates = append([]candidateItem(nil), state.Candidates[:visibleCandidateCount]...)
@@ -2002,6 +2023,16 @@ func (ime *IME) clearResponse(resp *imecore.Response) {
 }
 
 func (ime *IME) fillResponseFromBackendState(resp *imecore.Response, allowCommit bool) bool {
+	start := time.Now()
+	defer func() {
+		candidates, commitLen, compositionLen := 0, 0, 0
+		if resp != nil {
+			candidates = len(resp.CandidateList)
+			commitLen = len(resp.CommitString)
+			compositionLen = len(resp.CompositionString)
+		}
+		logRimeSlow("fillResponseFromBackendState", start, "allowCommit=%v candidates=%d commit=%d composition=%d", allowCommit, candidates, commitLen, compositionLen)
+	}()
 	if resp == nil {
 		return true
 	}
@@ -2326,6 +2357,50 @@ func (ime *IME) schemaMenuItems() []map[string]interface{} {
 	return items
 }
 
+func (ime *IME) MobileSchemaEntries() []string {
+	ime.mu.Lock()
+	defer ime.mu.Unlock()
+	ime.createSession(nil)
+	if ime.backend == nil {
+		return nil
+	}
+	schemas := ime.backend.SchemaList()
+	currentSchemaID := strings.TrimSpace(ime.backend.CurrentSchemaID())
+	entries := make([]string, 0, len(schemas))
+	for _, schema := range schemas {
+		schemaID := strings.TrimSpace(schema.ID)
+		if schemaID == "" {
+			continue
+		}
+		name := strings.TrimSpace(schema.Name)
+		if name == "" {
+			name = schemaID
+		}
+		selected := "0"
+		if schemaID == currentSchemaID {
+			selected = "1"
+		}
+		entries = append(entries, schemaID+"\t"+name+"\t"+selected)
+	}
+	return entries
+}
+
+func (ime *IME) MobileCurrentSchemaID() string {
+	ime.mu.Lock()
+	defer ime.mu.Unlock()
+	ime.createSession(nil)
+	if ime.backend == nil {
+		return ""
+	}
+	return strings.TrimSpace(ime.backend.CurrentSchemaID())
+}
+
+func (ime *IME) MobileSelectSchema(schemaID string) bool {
+	ime.mu.Lock()
+	defer ime.mu.Unlock()
+	return ime.selectSchemaByIDLocked(schemaID)
+}
+
 func (ime *IME) handleSchemaCommand(commandID int) bool {
 	if ime.backend == nil {
 		return false
@@ -2342,12 +2417,27 @@ func (ime *IME) handleSchemaCommand(commandID int) bool {
 	if schemaID == "" {
 		return false
 	}
+	return ime.selectSchemaByIDLocked(schemaID)
+}
+
+func (ime *IME) selectSchemaByIDLocked(schemaID string) bool {
+	schemaID = strings.TrimSpace(schemaID)
+	if schemaID == "" {
+		return false
+	}
+	ime.createSession(nil)
+	if ime.backend == nil {
+		return false
+	}
+	if !schemaIDExists(schemaID, ime.backend.SchemaList()) {
+		return false
+	}
 	if !ime.backend.SelectSchema(schemaID) {
 		return false
 	}
 	ime.syncedSchemaID = schemaID
 	ime.setSyncedSchemaIDForCurrentSchemeSet(schemaID)
-	ime.saveAppearancePrefsWithReason("handleSchemaCommand")
+	ime.saveAppearancePrefsWithReason("selectSchemaByIDLocked")
 	if ime.inputStateShared {
 		ime.applySharedInputStateToBackend()
 		ime.syncSharedInputStateFromBackendIfChanged()
@@ -2920,6 +3010,14 @@ func (ime *IME) userDir() string {
 		return ""
 	}
 	return filepath.Join(root, currentSchemeSetName())
+}
+
+func logRimeSlow(operation string, start time.Time, format string, args ...interface{}) {
+	elapsed := time.Since(start)
+	if elapsed < rimeSlowLogThreshold {
+		return
+	}
+	log.Printf("RIME slow %s total=%s %s", operation, elapsed, fmt.Sprintf(format, args...))
 }
 
 func rimeLogDir() string {
