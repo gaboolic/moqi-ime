@@ -53,6 +53,7 @@ type MobileResponse struct {
 	CompositionString  string
 	CommitString       string
 	CandidateList      *StringList
+	CandidateEntries   *StringList
 	ShowCandidates     bool
 	CursorPos          int
 	CompositionCursor  int
@@ -185,6 +186,15 @@ func (s *Session) SchemaEntries() *StringList {
 	return newStringList(nil)
 }
 
+func (s *Session) MenuEntries() *StringList {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ime, ok := s.service.(*rime.IME); ok {
+		return newStringList(ime.MobileMenuEntries())
+	}
+	return newStringList(nil)
+}
+
 func (s *Session) CurrentSchemaID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -297,6 +307,7 @@ func (s *Session) applyResponse(resp *imecore.Response) *MobileResponse {
 		CompositionString:  resp.CompositionString,
 		CommitString:       resp.CommitString,
 		CandidateList:      newStringList(resp.CandidateList),
+		CandidateEntries:   newStringList(mobileCandidateEntries(resp)),
 		ShowCandidates:     resp.ShowCandidates,
 		CursorPos:          resp.CursorPos,
 		CompositionCursor:  resp.CompositionCursor,
@@ -306,6 +317,24 @@ func (s *Session) applyResponse(resp *imecore.Response) *MobileResponse {
 		Message:            resp.Message,
 		Error:              resp.Error,
 	}
+}
+
+func mobileCandidateEntries(resp *imecore.Response) []string {
+	if resp == nil || len(resp.CandidateEntries) == 0 {
+		return nil
+	}
+	entries := make([]string, 0, len(resp.CandidateEntries))
+	for _, candidate := range resp.CandidateEntries {
+		entries = append(entries, sanitizeMobileCandidateField(candidate.Text)+"\t"+sanitizeMobileCandidateField(candidate.Comment))
+	}
+	return entries
+}
+
+func sanitizeMobileCandidateField(value string) string {
+	value = strings.ReplaceAll(value, "\t", " ")
+	value = strings.ReplaceAll(value, "\r", " ")
+	value = strings.ReplaceAll(value, "\n", " ")
+	return strings.TrimSpace(value)
 }
 
 func newService(client *imecore.Client, guid string) (imecore.TextService, error) {

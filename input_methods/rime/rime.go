@@ -2393,6 +2393,13 @@ func (ime *IME) MobileSchemaEntries() []string {
 	return entries
 }
 
+func (ime *IME) MobileMenuEntries() []string {
+	ime.mu.Lock()
+	defer ime.mu.Unlock()
+	ime.createSession(nil)
+	return flattenMobileMenuEntries("", ime.buildMenu())
+}
+
 func (ime *IME) MobileCurrentSchemaID() string {
 	ime.mu.Lock()
 	defer ime.mu.Unlock()
@@ -2451,6 +2458,57 @@ func (ime *IME) selectSchemaByIDLocked(schemaID string) bool {
 		ime.syncSharedInputStateFromBackendIfChanged()
 	}
 	return true
+}
+
+func flattenMobileMenuEntries(group string, items []map[string]interface{}) []string {
+	entries := make([]string, 0, len(items))
+	for _, item := range items {
+		text := strings.TrimSpace(fmt.Sprint(item["text"]))
+		if text == "" {
+			continue
+		}
+		nextGroup := group
+		if nextGroup == "" {
+			nextGroup = text
+		} else {
+			nextGroup = nextGroup + "/" + text
+		}
+		if submenu, ok := item["submenu"].([]map[string]interface{}); ok {
+			entries = append(entries, flattenMobileMenuEntries(nextGroup, submenu)...)
+			continue
+		}
+		commandID := 0
+		if raw, ok := item["id"].(int); ok {
+			commandID = raw
+		}
+		checked, _ := item["checked"].(bool)
+		enabled := true
+		if raw, ok := item["enabled"].(bool); ok {
+			enabled = raw
+		}
+		entries = append(entries, strings.Join([]string{
+			sanitizeMobileMenuField(group),
+			fmt.Sprint(commandID),
+			sanitizeMobileMenuField(text),
+			boolString(checked),
+			boolString(enabled),
+		}, "\t"))
+	}
+	return entries
+}
+
+func sanitizeMobileMenuField(value string) string {
+	value = strings.ReplaceAll(value, "\t", " ")
+	value = strings.ReplaceAll(value, "\r", " ")
+	value = strings.ReplaceAll(value, "\n", " ")
+	return strings.TrimSpace(value)
+}
+
+func boolString(value bool) string {
+	if value {
+		return "1"
+	}
+	return "0"
 }
 
 func (ime *IME) updateLangStatus(req *imecore.Request, resp *imecore.Response) {
