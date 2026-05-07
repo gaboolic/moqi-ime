@@ -170,10 +170,19 @@ func (s *Session) CurrentSchemeSet() string {
 }
 
 func (s *Session) SelectSchemeSet(name string) *MobileResponse {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.seqNum++
+	if s.service == nil || s.closed {
+		return errorResponse(s.seqNum, fmt.Errorf("session is not initialized"))
+	}
+	if ime, ok := s.service.(*rime.IME); ok {
+		return s.applyResponse(ime.MobileSelectSchemeSet(name, s.seqNum))
+	}
 	if !rime.SelectSchemeSetName(name) {
 		return errorResponse(s.seqNum, fmt.Errorf("failed to select scheme set: %s", name))
 	}
-	s.Close()
 	return &MobileResponse{Success: true, ReturnValue: 1, CandidateList: newStringList(nil)}
 }
 

@@ -80,6 +80,38 @@ function Invoke-CMakeProjectBuild {
     Invoke-Checked $cmake @("--build", $buildDir, "--target", $Target, "--", "-j$env:NUMBER_OF_PROCESSORS") $LibrimeRoot
 }
 
+function Ensure-LibrimeLuaPlugin {
+    param(
+        [string]$LibrimeRoot
+    )
+
+    $pluginDir = Join-Path $LibrimeRoot "plugins\lua"
+    if (-not (Test-Path (Join-Path $pluginDir "CMakeLists.txt"))) {
+        Write-Host "Installing librime-lua plugin..."
+        Remove-Item -Recurse -Force $pluginDir -ErrorAction SilentlyContinue
+        Invoke-Checked "git" @(
+            "clone",
+            "--depth=1",
+            "https://github.com/hchunhui/librime-lua.git",
+            $pluginDir
+        ) $LibrimeRoot
+    }
+
+    $luaHeader = Join-Path $pluginDir "thirdparty\lua5.4\lua.h"
+    if (-not (Test-Path $luaHeader)) {
+        Write-Host "Installing librime-lua third-party Lua runtime..."
+        Remove-Item -Recurse -Force (Join-Path $pluginDir "thirdparty") -ErrorAction SilentlyContinue
+        Invoke-Checked "git" @(
+            "clone",
+            "--depth=1",
+            "-b",
+            "thirdparty",
+            "https://github.com/hchunhui/librime-lua.git",
+            "thirdparty"
+        ) $pluginDir
+    }
+}
+
 Invoke-CMakeProjectBuild "leveldb" (Join-Path $LibrimeRoot "deps\leveldb") @(
     "-DLEVELDB_BUILD_TESTS=OFF",
     "-DLEVELDB_BUILD_BENCHMARKS=OFF",
@@ -123,15 +155,8 @@ Copy-Item -Force (Join-Path $openccBuild "src\libopencc.a") (Join-Path $depsPref
 
 $rimeBuild = Join-Path $buildRoot "librime"
 Remove-Item -Recurse -Force $rimeBuild -ErrorAction SilentlyContinue
-$emptyPluginDir = Join-Path $LibrimeRoot "plugins\android_empty"
-New-Item -ItemType Directory -Force -Path $emptyPluginDir | Out-Null
-Set-Content -Path (Join-Path $emptyPluginDir "CMakeLists.txt") -Encoding ASCII -Value @"
-set(plugin_name rime-android-empty)
-set(plugin_objs)
-set(plugin_deps)
-set(plugin_modules)
-"@
-$env:RIME_PLUGINS = "android_empty"
+Ensure-LibrimeLuaPlugin -LibrimeRoot $LibrimeRoot
+$env:RIME_PLUGINS = "lua"
 $env:RIME_PLUGINS_STRICT = "1"
 Invoke-Checked $cmake @(
     "-S", $LibrimeRoot,

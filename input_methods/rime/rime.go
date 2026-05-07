@@ -263,9 +263,9 @@ func defaultStyle() Style {
 		CandidateCommentHighlightColor: "#000000",
 		CandidateSpacing:               20,
 		FontFace:                       "Segoe UI",
-		FontPoint:                      20,
+		FontPoint:                      16,
 		CandidateCommentFontFace:       "Consolas",
-		CandidateCommentFontPoint:      18,
+		CandidateCommentFontPoint:      14,
 		InlinePreedit:                  "composition",
 		SoftCursor:                     false,
 	}
@@ -2414,6 +2414,30 @@ func (ime *IME) MobileSelectSchema(schemaID string) bool {
 	ime.mu.Lock()
 	defer ime.mu.Unlock()
 	return ime.selectSchemaByIDLocked(schemaID)
+}
+
+func (ime *IME) MobileSelectSchemeSet(name string, seqNum int) *imecore.Response {
+	target := normalizeSchemeSetName(name)
+	names := availableSchemeSets()
+	for index, candidate := range names {
+		if candidate != target {
+			continue
+		}
+		commandID := schemeSetCommandID(index)
+		return ime.HandleRequest(&imecore.Request{
+			Method:      "onCommand",
+			SeqNum:      seqNum,
+			ID:          imecore.FlexibleID{Int: commandID, IsInt: true},
+			CommandType: commandID,
+			Data: map[string]interface{}{
+				"commandId": float64(commandID),
+				"source":    "android",
+			},
+		})
+	}
+	resp := imecore.NewResponse(seqNum, false)
+	resp.Error = fmt.Sprintf("unknown scheme set: %s", name)
+	return resp
 }
 
 func (ime *IME) handleSchemaCommand(commandID int) bool {

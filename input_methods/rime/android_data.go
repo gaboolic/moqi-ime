@@ -18,7 +18,6 @@ var androidRimeData embed.FS
 var (
 	androidDirsOnce  sync.Once
 	androidSharedDir string
-	androidUserDir   string
 	androidDirsOK    bool
 
 	androidDataRootMu sync.Mutex
@@ -35,7 +34,6 @@ func SetAndroidDataDir(path string) {
 	androidBaseDir = path
 	androidDirsOnce = sync.Once{}
 	androidSharedDir = ""
-	androidUserDir = ""
 	androidDirsOK = false
 }
 
@@ -66,19 +64,26 @@ func androidRimeDirs() (sharedDir string, userDir string, ok bool) {
 		}
 
 		androidSharedDir = filepath.Join(root, "rime_shared")
-		androidUserDir = filepath.Join(root, currentSchemeSetName())
 		if err := extractAndroidRimeData(androidSharedDir); err != nil {
 			log.Printf("解压 Android RIME 数据失败: %v", err)
 			return
 		}
-		if err := os.MkdirAll(androidUserDir, 0o700); err != nil {
-			log.Printf("创建 Android RIME 用户目录失败: %v", err)
-			return
-		}
 		androidDirsOK = true
-		log.Printf("Android RIME 数据目录已就绪 shared=%s user=%s", androidSharedDir, androidUserDir)
+		log.Printf("Android RIME shared 数据目录已就绪 shared=%s", androidSharedDir)
 	})
-	return androidSharedDir, androidUserDir, androidDirsOK
+	if !androidDirsOK {
+		return androidSharedDir, "", false
+	}
+	root := androidAppDataRoot()
+	if root == "" {
+		return androidSharedDir, "", false
+	}
+	userDir = filepath.Join(root, currentSchemeSetName())
+	if err := os.MkdirAll(userDir, 0o700); err != nil {
+		log.Printf("创建 Android RIME 用户目录失败: %v", err)
+		return androidSharedDir, userDir, false
+	}
+	return androidSharedDir, userDir, true
 }
 
 func extractAndroidRimeData(dst string) error {

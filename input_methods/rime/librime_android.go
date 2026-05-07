@@ -320,9 +320,17 @@ func Init(traits RimeTraits) bool {
 		cStrings = append(cStrings, cValue)
 		return cValue
 	}
+	cModules := make([]*C.char, 0, len(traits.Modules)+1)
+	var cModuleArray unsafe.Pointer
 	defer func() {
 		for _, value := range cStrings {
 			C.free(unsafe.Pointer(value))
+		}
+		for _, value := range cModules {
+			C.free(unsafe.Pointer(value))
+		}
+		if cModuleArray != nil {
+			C.free(cModuleArray)
 		}
 	}()
 
@@ -336,6 +344,22 @@ func Init(traits RimeTraits) bool {
 	cTraits.log_dir = addString(traits.LogDir)
 	cTraits.prebuilt_data_dir = addString(traits.PrebuiltDataDir)
 	cTraits.staging_dir = addString(traits.StagingDir)
+	if len(traits.Modules) > 0 {
+		for _, module := range traits.Modules {
+			module = strings.TrimSpace(module)
+			if module == "" {
+				continue
+			}
+			cModules = append(cModules, C.CString(module))
+		}
+		cModules = append(cModules, nil)
+		if len(cModules) > 1 {
+			cModuleArray = C.malloc(C.size_t(len(cModules)) * C.size_t(unsafe.Sizeof(uintptr(0))))
+			cModuleSlice := unsafe.Slice((**C.char)(cModuleArray), len(cModules))
+			copy(cModuleSlice, cModules)
+			cTraits.modules = (**C.char)(cModuleArray)
+		}
+	}
 
 	return C.moqi_rime_setup(&cTraits) != 0
 }
@@ -794,6 +818,7 @@ func RimeInit(datadir, userdir, appname, appver string, fullcheck bool) bool {
 		DistributionCodeName: appname,
 		DistributionVersion:  appver,
 		AppName:              fmt.Sprintf("Rime.%s", appname),
+		Modules:              []string{"default", "lua"},
 		LogDir:               logDir,
 		PrebuiltDataDir:      filepath.Join(datadir, "build"),
 		StagingDir:           filepath.Join(userdir, "build"),
@@ -821,6 +846,7 @@ func RimeRedeploy(datadir, userdir, appname, appver string) bool {
 		DistributionCodeName: appname,
 		DistributionVersion:  appver,
 		AppName:              fmt.Sprintf("Rime.%s", appname),
+		Modules:              []string{"default", "lua"},
 		LogDir:               logDir,
 		PrebuiltDataDir:      filepath.Join(datadir, "build"),
 		StagingDir:           filepath.Join(userdir, "build"),

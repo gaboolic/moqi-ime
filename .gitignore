@@ -36,3 +36,4 @@ go.work.sum
 # .vscode/
 
 scripts/build
+input_methods/rime/data

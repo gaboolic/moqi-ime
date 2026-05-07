@@ -520,7 +520,7 @@ func TestNewInitialState(t *testing.T) {
 	if ime.style.CandidatePerRow != 1 {
 		t.Fatalf("expected vertical layout by default, got CandidatePerRow=%d", ime.style.CandidatePerRow)
 	}
-	if ime.style.CandidateTheme != "default" || ime.style.FontPoint != 20 || ime.style.CandidateCommentFontPoint != 18 {
+	if ime.style.CandidateTheme != "default" || ime.style.FontPoint != 16 || ime.style.CandidateCommentFontPoint != 14 {
 		t.Fatalf("expected default theme defaults, got theme=%q font=%d commentFont=%d",
 			ime.style.CandidateTheme, ime.style.FontPoint, ime.style.CandidateCommentFontPoint)
 	}
