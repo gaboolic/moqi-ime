@@ -561,6 +561,12 @@ func (ime *IME) applyAppearanceCommand(commandID int) bool {
 		ime.style.CandidateCount = 7
 	case ID_APPEARANCE_CAND_COUNT_9:
 		ime.style.CandidateCount = 9
+	case ID_APPEARANCE_FONT_8:
+		ime.style.FontPoint = 8
+	case ID_APPEARANCE_FONT_10:
+		ime.style.FontPoint = 10
+	case ID_APPEARANCE_FONT_12:
+		ime.style.FontPoint = 12
 	case ID_APPEARANCE_FONT_14:
 		ime.style.FontPoint = 14
 	case ID_APPEARANCE_FONT_16:
@@ -587,6 +593,12 @@ func (ime *IME) applyAppearanceCommand(commandID int) bool {
 		ime.style.FontFace = "DengXian"
 	case ID_APPEARANCE_FONT_FAMILY_SIMSUN:
 		ime.style.FontFace = "SimSun"
+	case ID_APPEARANCE_COMMENT_FONT_8:
+		ime.style.CandidateCommentFontPoint = 8
+	case ID_APPEARANCE_COMMENT_FONT_10:
+		ime.style.CandidateCommentFontPoint = 10
+	case ID_APPEARANCE_COMMENT_FONT_12:
+		ime.style.CandidateCommentFontPoint = 12
 	case ID_APPEARANCE_COMMENT_FONT_14:
 		ime.style.CandidateCommentFontPoint = 14
 	case ID_APPEARANCE_COMMENT_FONT_16:

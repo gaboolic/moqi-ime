@@ -41,24 +41,30 @@ const (
 	ID_SCHEME_SET_BASE     = 3000
 
 	ID_APPEARANCE_INLINE_PREEDIT               = 100
-	ID_APPEARANCE_FONT_14                      = 110
-	ID_APPEARANCE_FONT_16                      = 111
-	ID_APPEARANCE_FONT_18                      = 112
-	ID_APPEARANCE_FONT_20                      = 113
-	ID_APPEARANCE_FONT_22                      = 114
-	ID_APPEARANCE_FONT_24                      = 202
-	ID_APPEARANCE_FONT_26                      = 203
-	ID_APPEARANCE_FONT_28                      = 204
-	ID_APPEARANCE_FONT_30                      = 205
-	ID_APPEARANCE_COMMENT_FONT_14              = 115
-	ID_APPEARANCE_COMMENT_FONT_16              = 116
-	ID_APPEARANCE_COMMENT_FONT_18              = 117
-	ID_APPEARANCE_COMMENT_FONT_20              = 118
-	ID_APPEARANCE_COMMENT_FONT_22              = 119
-	ID_APPEARANCE_COMMENT_FONT_24              = 206
-	ID_APPEARANCE_COMMENT_FONT_26              = 207
-	ID_APPEARANCE_COMMENT_FONT_28              = 208
-	ID_APPEARANCE_COMMENT_FONT_30              = 209
+	ID_APPEARANCE_FONT_8                       = 113
+	ID_APPEARANCE_FONT_10                      = 114
+	ID_APPEARANCE_FONT_12                      = 115
+	ID_APPEARANCE_FONT_14                      = 116
+	ID_APPEARANCE_FONT_16                      = 117
+	ID_APPEARANCE_FONT_18                      = 118
+	ID_APPEARANCE_FONT_20                      = 119
+	ID_APPEARANCE_FONT_22                      = 123
+	ID_APPEARANCE_FONT_24                      = 124
+	ID_APPEARANCE_FONT_26                      = 125
+	ID_APPEARANCE_FONT_28                      = 126
+	ID_APPEARANCE_FONT_30                      = 127
+	ID_APPEARANCE_COMMENT_FONT_8               = 213
+	ID_APPEARANCE_COMMENT_FONT_10              = 214
+	ID_APPEARANCE_COMMENT_FONT_12              = 216
+	ID_APPEARANCE_COMMENT_FONT_14              = 217
+	ID_APPEARANCE_COMMENT_FONT_16              = 218
+	ID_APPEARANCE_COMMENT_FONT_18              = 219
+	ID_APPEARANCE_COMMENT_FONT_20              = 220
+	ID_APPEARANCE_COMMENT_FONT_22              = 221
+	ID_APPEARANCE_COMMENT_FONT_24              = 222
+	ID_APPEARANCE_COMMENT_FONT_26              = 223
+	ID_APPEARANCE_COMMENT_FONT_28              = 224
+	ID_APPEARANCE_COMMENT_FONT_30              = 225
 	ID_APPEARANCE_BG_WHITE                     = 120
 	ID_APPEARANCE_BG_WARM                      = 121
 	ID_APPEARANCE_BG_BLUE                      = 122
@@ -3232,6 +3238,9 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 				{"id": ID_APPEARANCE_CAND_COUNT_9, "text": "9", "checked": ime.candidateCount() == 9},
 			}},
 			{"text": "字体大小", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_FONT_8, "text": "8", "checked": ime.style.FontPoint == 8},
+				{"id": ID_APPEARANCE_FONT_10, "text": "10", "checked": ime.style.FontPoint == 10},
+				{"id": ID_APPEARANCE_FONT_12, "text": "12", "checked": ime.style.FontPoint == 12},
 				{"id": ID_APPEARANCE_FONT_14, "text": "14", "checked": ime.style.FontPoint == 14},
 				{"id": ID_APPEARANCE_FONT_16, "text": "16", "checked": ime.style.FontPoint == 16},
 				{"id": ID_APPEARANCE_FONT_18, "text": "18", "checked": ime.style.FontPoint == 18},
@@ -3249,6 +3258,9 @@ func (ime *IME) buildMenu() []map[string]interface{} {
 				{"id": ID_APPEARANCE_FONT_FAMILY_SIMSUN, "text": "宋体", "checked": strings.EqualFold(ime.style.FontFace, "SimSun")},
 			}},
 			{"text": "注释文字大小", "submenu": []map[string]interface{}{
+				{"id": ID_APPEARANCE_COMMENT_FONT_8, "text": "8", "checked": ime.style.CandidateCommentFontPoint == 8},
+				{"id": ID_APPEARANCE_COMMENT_FONT_10, "text": "10", "checked": ime.style.CandidateCommentFontPoint == 10},
+				{"id": ID_APPEARANCE_COMMENT_FONT_12, "text": "12", "checked": ime.style.CandidateCommentFontPoint == 12},
 				{"id": ID_APPEARANCE_COMMENT_FONT_14, "text": "14", "checked": ime.style.CandidateCommentFontPoint == 14},
 				{"id": ID_APPEARANCE_COMMENT_FONT_16, "text": "16", "checked": ime.style.CandidateCommentFontPoint == 16},
 				{"id": ID_APPEARANCE_COMMENT_FONT_18, "text": "18", "checked": ime.style.CandidateCommentFontPoint == 18},

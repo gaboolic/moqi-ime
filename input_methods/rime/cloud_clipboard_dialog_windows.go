@@ -96,7 +96,7 @@ $form.Controls.Add($cancelButton)
 $result = $form.ShowDialog()
 if ($result -ne [System.Windows.Forms.DialogResult]::OK) { exit 2 }
 $payload = @{
-  enabled = %t
+  enabled = $%t
   base_url = $urlBox.Text
   username = $userBox.Text
   password = $passBox.Text
@@ -207,7 +207,7 @@ $form.Controls.Add($cancelButton)
 $result = $form.ShowDialog()
 if ($result -ne [System.Windows.Forms.DialogResult]::OK) { exit 2 }
 $payload = @{
-  enabled = %t
+  enabled = $%t
   base_url = '%s'
   username = '%s'
   password = ''
