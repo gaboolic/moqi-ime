@@ -130,7 +130,14 @@ func testCloudClipboardConnection(cfg cloudclipboard.Config) error {
 	if cfg.Username == "" || cfg.Password == "" {
 		return fmt.Errorf("请填写用户名和密码")
 	}
-	sync := cloudclipboard.NewSync(cfg)
+	// A connection test only verifies that the WebDAV endpoint is reachable and
+	// the credentials are valid; it must not depend on whether the cloud
+	// clipboard is currently enabled. Force Enabled so the sync client is
+	// actually created, otherwise reloadClient() would leave client==nil and
+	// TestConnection() would just report "云剪贴板未配置完整".
+	testCfg := cfg
+	testCfg.Enabled = true
+	sync := cloudclipboard.NewSync(testCfg)
 	return sync.TestConnection()
 }
 
