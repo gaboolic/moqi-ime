@@ -240,6 +240,8 @@ type IME struct {
 	cloudClipboardCursor         int
 	cloudClipboardPage           int
 	cloudClipboardRequestSeq     uint64
+	shiftTapActive               bool
+	shiftTapCancel               chan struct{}
 }
 
 type aiAsyncResult struct {
@@ -391,6 +393,7 @@ func (ime *IME) onActivate(req *imecore.Request, resp *imecore.Response) *imecor
 
 func (ime *IME) onDeactivate(req *imecore.Request, resp *imecore.Response) *imecore.Response {
 	debugLogf("RIME 输入法已失活")
+	ime.cancelShiftTapDetection("deactivate")
 	ime.activationUIRefreshPending = false
 	ime.resetCloudClipboardState()
 	resp.RemovePreservedKey = append(resp.RemovePreservedKey, cloudClipboardListPreservedKeyGUID)
@@ -437,6 +440,7 @@ func (ime *IME) filterKeyDown(req *imecore.Request, resp *imecore.Response) *ime
 	} else {
 		ime.lastKeyDownCode = req.KeyCode
 		ime.lastKeySkip = 0
+		ime.noteKeyDownForShiftTap(req, resp)
 		beforeASCII, beforeFullShape, hasInputState := ime.currentInputModeState()
 		start := time.Now()
 		ime.lastKeyDownRet = ime.processKey(req, false)
@@ -472,6 +476,7 @@ func (ime *IME) flushPendingActivationUI(req *imecore.Request, resp *imecore.Res
 }
 
 func (ime *IME) filterKeyUp(req *imecore.Request, resp *imecore.Response) *imecore.Response {
+	ime.cancelShiftTapDetection("keyup")
 	if ime.handleAIKeyUpFilter(req, resp) {
 		return resp
 	}
@@ -553,11 +558,13 @@ func (ime *IME) onKeyDown(req *imecore.Request, resp *imecore.Response) *imecore
 		resp.ReturnValue = 0
 		return resp
 	}
+	ime.noteKeyDownForShiftTap(req, resp)
 	resp.ReturnValue = boolToInt(ime.onKey(req, resp))
 	return resp
 }
 
 func (ime *IME) onKeyUp(req *imecore.Request, resp *imecore.Response) *imecore.Response {
+	ime.cancelShiftTapDetection("keyup")
 	if ime.handleAIKeyUp(req, resp) {
 		return resp
 	}
@@ -1125,6 +1132,7 @@ func (ime *IME) Init(req *imecore.Request) bool {
 }
 
 func (ime *IME) Close() {
+	ime.cancelShiftTapDetection("close")
 	ime.destroySession(nil)
 	debugLogf("RIME 输入法关闭")
 }
@@ -1180,7 +1188,7 @@ func (ime *IME) processKey(req *imecore.Request, isUp bool) bool {
 		return true
 	}
 	if (req.KeyCode == vkShift || req.KeyCode == vkCapital) &&
-		(modifiers == 0 || modifiers == releaseMask) {
+		(modifiers == 0 || modifiers == releaseMask || modifiers == shiftMask|releaseMask) {
 		handled = true
 		ime.logShortcutTrace(req, isUp, translatedKeyCode, modifiers, backendRet, handled)
 		return true
