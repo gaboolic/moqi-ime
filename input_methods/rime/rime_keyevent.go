@@ -171,6 +171,12 @@ func translateModifiers(req *imecore.Request, isUp bool) int {
 	}
 	if isUp {
 		result |= releaseMask
+		// X11 语义：修饰键 release 事件的 state 包含该键自身的修饰位。
+		// librime 的 ascii_composer 依靠它把"组合键释放"与"单击释放"区分开，
+		// 缺少自身位会让 Ctrl+Shift 等组合在快速松键时被误判为 Shift 单击。
+		if keyCode == vkShift || keyCode == vkLShift || keyCode == vkRShift {
+			result |= shiftMask
+		}
 	}
 	if keyCode == vkCapital && !isUp {
 		result ^= lockMask
